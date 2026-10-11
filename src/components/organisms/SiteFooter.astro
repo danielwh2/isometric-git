@@ -1,0 +1,20 @@
+---
+/**
+ * SiteFooter: the credit line, then the name set large as the page's last word.
+ *
+ *   <SiteFooter />
+ */
+---
+
+<footer>
+  <p>by <a href="https://github.com/danielwh2">Daniel</a>. Set in <a href="https://paper.design/mono">Paper Mono</a>.</p>
+  <p class="mark" aria-hidden="true">Isometric Git</p>
+</footer>
+
+<style>
+  footer { display: grid; gap: 18px; color: var(--ink-80); font-size: 12px; }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--ink-30); text-underline-offset: 3px; }
+  /* Paper Mono advances 0.606em a character, so 13 of them at this size and tracking span about 81vw: the name fills the column without leaving it. */
+  .mark { font-size: clamp(38px, 11.6vw, 150px); font-weight: 700; line-height: 0.9; letter-spacing: -0.07em; color: var(--ink-12); white-space: nowrap; user-select: none; -webkit-user-select: none; }
+  @media (hover: hover) { a:hover { text-decoration-color: var(--ink); } }
+</style>

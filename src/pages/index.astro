@@ -1,0 +1,112 @@
+---
+// Isometric Git's one page.
+//
+// Layout language: a single left-aligned column in the tool's own look, forest
+// ink on sage in one mono face. A headline and one button, then the factory
+// itself as the hero, running on a sample repo before the visitor does anything.
+// Below it, five live figures that say what each mark means, a note on where
+// the visitor's code goes (nowhere), and the button again.
+import Button from "../components/atoms/Button.astro";
+import Figure from "../components/molecules/Figure.astro";
+import SectionHead from "../components/molecules/SectionHead.astro";
+import Factory from "../components/organisms/Factory.astro";
+import SiteFooter from "../components/organisms/SiteFooter.astro";
+import "../styles/global.css";
+
+const title = "Isometric Git";
+const description = "Drop a repo folder and watch it built as an isometric factory, commit by commit. Folders are machines, imports are belts. It runs in your browser and uploads nothing.";
+---
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>{title}</title>
+<meta name="description" content={description} />
+<meta name="theme-color" content="#F0F2EC" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content={title} />
+<meta property="og:title" content="See your repo built as a factory." />
+<meta property="og:description" content={description} />
+<link rel="preload" href="/fonts/PaperMono-VF.woff2" as="font" type="font/woff2" crossorigin />
+</head>
+<body>
+<main class="page">
+  <p class="brand">Isometric Git</p>
+
+  <header class="hero">
+    <h1>See your repo built as a factory.</h1>
+    <p class="lede">Drop a folder. Every folder becomes a machine, every import a belt, and the history replays commit by commit.</p>
+    <Button variant="solid" data-open>Open a folder</Button>
+  </header>
+
+  <Factory />
+
+  <section class="read">
+    <SectionHead title="How to read it" />
+    <ul class="figures">
+      <Figure name="machine" title="Machine">A folder. More code makes it taller.</Figure>
+      <Figure name="hatch" title="Roof hatch">A file. Hover one for its name.</Figure>
+      <Figure name="belt" title="Belt">What one folder imports from another. More imports, more boxes, each labelled in its sender's colour.</Figure>
+      <Figure name="smoke" title="Smoke">A commit just changed files here.</Figure>
+      <Figure name="pennant" title="Pennant">Nothing imports this folder. A line ends here.</Figure>
+    </ul>
+  </section>
+
+  <section class="note">
+    <SectionHead title="Nothing leaves your machine" />
+    <p>The page reads the folder you give it, <code>.git</code> included, inside your browser. There is no server behind it and no upload. Once the page has loaded it makes no request at all, which you can watch in the network tab.</p>
+    <p>It follows JavaScript and TypeScript imports, tsconfig paths and workspace packages. Other languages still get machines, with no belts between them yet. A history longer than 150 commits is sampled down to 150 steps.</p>
+  </section>
+
+  <section class="close">
+    <SectionHead title="Draw yours." />
+    <Button variant="solid" data-open>Open a folder</Button>
+  </section>
+
+  <SiteFooter />
+</main>
+
+<script>
+  import { palette, reduced } from "../lib/ink";
+  import { legend } from "../lib/legend";
+
+  legend(palette, reduced);
+</script>
+
+<style>
+  .page { max-width: var(--col); margin-inline: auto; padding-inline: max(var(--gutter), env(safe-area-inset-left, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px)); padding-block: 22px 40px; }
+  /* Sections are told apart by the space between them. :global, because half of them are components. */
+  .page > :global(* + :not([data-expanded])) { margin-top: var(--section); } /* the expanded factory is a fixed layer and takes no margin */
+  .page > .hero { margin-top: clamp(40px, 7vw, 88px); }
+  .page > :global(.tool:not([data-expanded])) { margin-top: clamp(32px, 5vw, 56px); } /* the factory belongs to the headline above it */
+
+  .brand { font-weight: 700; letter-spacing: -0.02em; }
+  .hero { display: grid; gap: 20px; justify-items: start; }
+  /* 20ch breaks the headline after "built", two lines on a desktop. */
+  .hero h1 { max-width: 20ch; font-size: clamp(34px, 5.6vw, 60px); line-height: 1.04; letter-spacing: -0.05em; text-wrap: balance; }
+  .hero .lede { max-width: var(--measure); color: var(--ink-80); text-wrap: pretty; }
+
+  /* The page arrives once: each hero element rises a beat after the last. Fill is backwards only,
+     so nothing keeps a transform afterwards and the factory can still expand to a fixed layer. */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero > :global(*), .page > :global(.tool) { animation: rise var(--rise) var(--ease) backwards; }
+    .hero > :global(:nth-child(2)) { animation-delay: var(--rise-step); }
+    .hero > :global(:nth-child(3)) { animation-delay: calc(var(--rise-step) * 2); }
+    .page > :global(.tool) { animation-delay: calc(var(--rise-step) * 3); }
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(var(--rise-distance)); } }
+
+  .read { display: grid; gap: clamp(20px, 3vw, 36px); }
+  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr)); gap: 28px 24px; }
+
+  .note { display: grid; gap: 14px; max-width: var(--measure); color: var(--ink-80); text-wrap: pretty; }
+  .note :global(.head) { margin-bottom: 6px; color: var(--ink); }
+  .note code { color: var(--ink); }
+
+  .close { display: grid; gap: 20px; justify-items: start; }
+</style>
+</body>
+</html>

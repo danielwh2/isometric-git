@@ -1,0 +1,169 @@
+---
+/**
+ * Factory: the tool itself: a status bar, the stage the factory is drawn on,
+ * and the transport that scrubs its history. It opens on the built-in sample
+ * and redraws for any folder the visitor drops or picks.
+ *
+ *   <Factory />
+ *
+ * It takes no props. Its script (src/lib/app.ts) binds to the ids below, so
+ * there is one Factory to a page.
+ *
+ * From outside
+ *   [data-open]  any button on the page carrying this attribute opens the folder picker.
+ *   Dropping a folder anywhere on the page draws it.
+ *
+ * Its styles are global because the script builds the tags, the commit lines
+ * and the inspector's rows at run time, and scoped styles would not reach them.
+ * Every rule sits under .tool. Buttons use the page's .button class.
+ *
+ * The sample's words are printed here at build time, in the same form the
+ * script writes them, so nothing moves when the script takes over.
+ */
+import sample from "../../data/sample.json";
+import { plan, tally } from "../../lib/plan";
+import type { Scan } from "../../lib/scan";
+
+const scan = sample as unknown as Scan;
+const { frames } = plan(scan);
+const step = scan.steps.at(-1)!;
+---
+
+<section class="tool" id="tool" aria-label="The factory">
+  <div class="bar">
+    <p class="where"><strong id="repo">{scan.name}, a sample</strong><span id="counts">{tally(frames.at(-1)!)}</span><span id="commits"></span></p>
+    <button type="button" class="button" data-open>Open folder</button>
+    <button type="button" class="button" id="expand">Expand</button>
+    <input type="file" id="picker" webkitdirectory hidden />
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="factory" aria-hidden="true"></canvas>
+    <div class="tags" id="tags"></div>
+    <div class="zoom">
+      <button type="button" class="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
+      <button type="button" class="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="button" id="fit">Fit</button>
+    </div>
+    <p class="tip" id="tip" hidden></p>
+
+    <aside class="inspector" id="inspector" aria-label="Machine" hidden>
+      <header>
+        <h2 id="i-name"></h2>
+        <button type="button" class="button" id="i-close">Close</button>
+      </header>
+      <p class="sum" id="i-size"></p>
+      <section><h3>Takes from</h3><ul id="i-takes"></ul></section>
+      <section><h3>Feeds</h3><ul id="i-feeds"></ul></section>
+      <section id="i-merged-wrap">
+        <h3>Folded in</h3>
+        <div class="merged"><p id="i-merged"></p><button type="button" class="button" id="i-split">Split out</button></div>
+      </section>
+      <section><h3>Files</h3><ul class="files" id="i-files"></ul></section>
+    </aside>
+
+    <div class="notice" id="notice" hidden>
+      <p><span id="notice-text" role="status"></span> <span id="notice-count" aria-hidden="true"></span></p>
+      <progress id="notice-bar" max="1" aria-label="Progress" hidden></progress>
+      <button type="button" class="button" id="notice-close">Dismiss</button>
+    </div>
+    <div class="dropzone" id="dropzone" hidden>Drop the folder to draw it</div>
+  </div>
+
+  <div class="transport">
+    <div class="row">
+      <button type="button" class="button" id="play">Replay</button>
+      <select id="pace" aria-label="Speed">
+        <option value="0.5">0.5&times;</option>
+        <option value="1" selected>1&times;</option>
+        <option value="2">2&times;</option>
+        <option value="4">4&times;</option>
+      </select>
+      <input type="range" id="commit" min="0" step="1" aria-label="Step" />
+      <span id="at">{frames.length} / {frames.length}</span>
+    </div>
+    <div class="log">
+      <p class="meta"><span id="hash">{step.hash}</span><span id="date">{step.date}</span></p>
+      <div class="subjects" id="subjects">{scan.steps.map((each) => <p data-on={each === step ? "" : undefined}>{each.subject}</p>)}</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import "../../lib/app";
+</script>
+
+<style is:global>
+  .tool { --panel: 340px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; font-size: 12px; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); }
+  .tool[data-expanded] { position: fixed; inset: 0; z-index: 10; margin: 0; border: 0; border-radius: 0; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+
+  .tool .bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 9px 14px; }
+  .tool .where { display: flex; flex-wrap: wrap; gap: 0 14px; min-width: 0; flex: 1; color: var(--ink-80); font-variant-numeric: tabular-nums; }
+  .tool .where strong { color: var(--ink); overflow-wrap: anywhere; }
+
+  .tool .stage { position: relative; height: clamp(380px, 64vh, 720px); border-block: 1px solid var(--ink-30); overflow: clip; touch-action: pan-y; } /* clip, not hidden: focusing a tag panned out of view must not scroll the stage. In the page a finger scrolls the page. */
+  .tool[data-expanded] .stage { height: auto; min-height: 0; touch-action: none; }
+  .tool .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; -webkit-user-select: none; user-select: none; }
+
+  .tool .tags { position: absolute; inset: 0; pointer-events: none; }
+  .tool .tag { position: absolute; top: 0; left: 0; padding: 0 4px; font-size: 10px; line-height: 1.5; white-space: nowrap; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); cursor: pointer; pointer-events: auto; transition: opacity var(--quick) var(--ease), border-color var(--quick) var(--ease); }
+  .tool .tag::after { content: ""; position: absolute; inset: -8px; }
+  .tool .tag[data-lit] { border-color: var(--ink); }
+  .tool .tag[data-dim] { opacity: 0.4; }
+  .tool .tag[data-touched]::before { content: ""; display: inline-block; width: 4px; height: 4px; margin-right: 4px; vertical-align: middle; background: var(--ink); }
+  /* A tag waits for its machine to be finished, and gives way when it would cover another tag. */
+  .tool .tag[data-building], .tool .tag[data-crowded] { opacity: 0; pointer-events: none; }
+
+  .tool .tip { position: absolute; top: 14px; left: 14px; padding: 1px 6px; white-space: pre; background: var(--ink); color: var(--bg); border-radius: var(--radius); pointer-events: none; font-size: 11px; }
+  .tool .zoom { position: absolute; left: 14px; bottom: 12px; display: flex; gap: 6px; } /* left, clear of the inspector on the right */
+
+  .tool .notice { position: absolute; top: 12px; left: 50%; translate: -50% 0; width: max-content; max-width: min(64ch, calc(100% - 28px)); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 10px; background: var(--bg); border: 1px solid var(--ink); border-radius: var(--radius); }
+  .tool .notice p { min-width: 0; overflow-wrap: anywhere; }
+  .tool .notice progress { width: 120px; height: 4px; accent-color: var(--ink); }
+  .tool .dropzone { position: absolute; inset: 10px; display: grid; place-items: center; background: var(--veil); border: 1px dashed var(--ink); border-radius: var(--radius); font-size: 14px; font-weight: 700; pointer-events: none; }
+
+  .tool .inspector { position: absolute; top: 0; right: 0; bottom: 0; width: min(var(--panel), 100%); display: grid; align-content: start; gap: 16px; padding: 14px 16px 20px; background: var(--bg); border-left: 1px solid var(--ink-30); overflow-y: auto; touch-action: pan-y; transition: opacity var(--opened) var(--ease), transform var(--opened) var(--ease); }
+  .tool[data-expanded] .inspector { overscroll-behavior: contain; } /* in the page, a scroll that reaches its end carries on to the page */
+  @starting-style { .tool .inspector { opacity: 0; transform: translateX(8px); } }
+  .tool .inspector header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+  .tool .inspector h2 { font-size: 13px; line-height: 1.5; letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 0; }
+  .tool .inspector h3 { font-size: 11px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-80); padding-bottom: 4px; border-bottom: 1px solid var(--ink-12); margin-bottom: 4px; }
+  .tool .inspector .sum { color: var(--ink-80); }
+  .tool .inspector li { display: flex; gap: 10px; justify-content: space-between; padding: 1px 0; color: var(--ink-80); font-variant-numeric: tabular-nums; }
+  .tool .inspector li > :first-child { min-width: 0; overflow-wrap: anywhere; color: var(--ink); text-align: left; }
+  .tool .inspector li > :not(:first-child) { white-space: nowrap; }
+  .tool .inspector li button { padding: 0; background: none; border: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--ink-30); text-underline-offset: 3px; }
+  .tool .inspector .files li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; }
+  .tool .inspector .files li > :nth-child(3) { grid-column: 1 / -1; font-size: 11px; }
+  .tool .inspector .merged { display: grid; gap: 8px; justify-items: start; color: var(--ink-80); overflow-wrap: anywhere; }
+  @media (hover: hover) {
+    .tool .inspector li button:hover { text-decoration-color: var(--ink); }
+    .tool .inspector .files li:hover > :first-child { text-decoration: underline; }
+  }
+  @media (max-width: 640px) { .tool .inspector { top: auto; left: 0; width: auto; max-height: 55%; border-left: 0; border-top: 1px solid var(--ink-30); } }
+
+  .tool .transport { display: grid; gap: 6px; padding: 10px 14px 12px; }
+  .tool .transport .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+  .tool #play { min-width: 8ch; } /* Replay, Play and Pause share a width, so the scrubber never moves */
+  .tool .transport select { padding: 2px 4px; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); }
+  .tool .transport input { width: 100%; margin: 0; accent-color: var(--ink); }
+  .tool #at { font-variant-numeric: tabular-nums; color: var(--ink-80); white-space: nowrap; }
+  .tool .log { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 14px; font-variant-numeric: tabular-nums; }
+  .tool .log .meta { display: flex; gap: 10px; }
+  .tool .log .meta span + span { color: var(--ink-80); }
+  /* Every commit's subject shares one cell, so the tallest sets the height and scrubbing moves nothing. */
+  .tool .subjects { display: grid; color: var(--ink-80); }
+  .tool .subjects p { grid-area: 1 / 1; visibility: hidden; overflow-wrap: anywhere; }
+  .tool .subjects p[data-on] { visibility: visible; }
+  @media (max-width: 640px) {
+    .tool .log { grid-template-columns: minmax(0, 1fr); }
+    .tool .where { flex-basis: 100%; } /* beside two buttons it would wrap to a column of single words */
+  }
+  @media (pointer: coarse) {
+    .tool .transport select { font-size: 16px; } /* iOS zooms the page when a smaller control takes focus */
+    .tool .tag::after { inset: -14px -8px; } /* a 44px target around a 17px tag */
+    .tool .inspector li button { padding-block: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { .tool .tag, .tool .inspector { transition: none; } }
+</style>

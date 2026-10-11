@@ -1,0 +1,33 @@
+---
+/**
+ * Figure: one mark from the factory, drawn live, with its name and what it means.
+ * It renders the canvas only; the page's script hands every canvas[data-figure]
+ * to legend() in src/lib/legend.ts, which paints it with the factory's own painter.
+ *
+ *   <ul>
+ *     <Figure name="belt" title="Belt">What one folder imports from another.</Figure>
+ *   </ul>
+ *
+ * Props
+ *   name   which figure to draw: a key of FIGURES in src/lib/legend.ts.
+ *   title  the mark's name.
+ * The slot is the one line that says what the mark means.
+ */
+interface Props {
+  name: "machine" | "hatch" | "belt" | "smoke" | "pennant";
+  title: string;
+}
+const { name, title } = Astro.props;
+---
+
+<li>
+  <canvas data-figure={name} aria-hidden="true"></canvas>
+  <h3>{title}</h3>
+  <p><slot /></p>
+</li>
+
+<style>
+  li { display: grid; gap: 4px; align-content: start; min-width: 0; color: var(--ink-80); }
+  canvas { display: block; width: 100%; aspect-ratio: 5 / 4; margin-bottom: 8px; border-bottom: 1px solid var(--ink-12); } /* the ratio holds the space before the first frame is drawn */
+  h3 { font-size: 14px; color: var(--ink); }
+</style>

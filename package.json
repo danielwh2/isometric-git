@@ -1,0 +1,26 @@
+{
+  "name": "isometric-git",
+  "description": "See your repo built as a factory: folders are machines, files are hatches, imports are belts. Runs in the browser, uploads nothing.",
+  "private": true,
+  "license": "MIT",
+  "author": "Daniel (https://github.com/danielwh2)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danielwh2/isometric-git.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "bun test",
+    "check": "tsc -p .",
+    "sample": "bun scripts/sample.ts > src/data/sample.json"
+  },
+  "dependencies": {
+    "astro": "^7.2.9"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
