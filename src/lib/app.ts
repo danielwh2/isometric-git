@@ -76,6 +76,9 @@ let looping = false;
 let pending = 0; // the queued frame, so the loop can never run twice
 let then = 0;
 
+/** What is on screen, for the stamp. "factory:drawn" fires on the document each time it changes. */
+export const shown = () => ({ scan, plan, sampled });
+
 const view = (): View => ({ k: camera.k.at, ox: camera.ox.at, oy: camera.oy.at });
 const last = () => plan.frames.length - 1;
 const speed = () => Number(pace.value);
@@ -152,6 +155,7 @@ function load(next: Scan, replay: boolean) {
     reframe(true);
     start();
   } else show(last(), true);
+  document.dispatchEvent(new Event("factory:drawn"));
 }
 
 /** Lays the factory out again, after a new scan or a split. */
@@ -459,7 +463,7 @@ function expand(on: boolean) {
 }
 $("expand").addEventListener("click", () => expand(!expanded()));
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
+  if (event.key !== "Escape" || document.querySelector("dialog[open]")) return; // a dialog takes its own Escape
   if (opened !== undefined) open(undefined);
   else if (expanded()) expand(false);
 });

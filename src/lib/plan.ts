@@ -17,7 +17,7 @@ const MAX_MACHINES = 36; // a 6 by 6 lot still reads at a glance. Smaller folder
 const MIN_FOLDERS = 4; // fewer folders than this and a small repo is drawn file by file
 const MIN_ROWS = 3;
 
-export type Size = { files: number; across: number; deep: number; pitch: number; a: number; b: number; h: number };
+export type Size = { files: number; bytes: number; across: number; deep: number; pitch: number; a: number; b: number; h: number };
 export type Machine = { id: number; name: string; col: number; row: number; x: number; y: number; /** Folders folded into this one. */ merged: string[] };
 export type Belt = { from: number; to: number; points: [number, number][]; length: number };
 export type Frame = {
@@ -30,7 +30,7 @@ export type Frame = {
 export type Plan = { machines: Machine[]; belts: Belt[]; frames: Frame[]; /** The machine each file belongs to. */ home: number[] };
 export type FileState = Map<number, { bytes: number; imports: number[] }>;
 
-const NOTHING: Size = { files: 0, across: 1, deep: 1, pitch: HATCH, a: 0, b: 0, h: 0 };
+const NOTHING: Size = { files: 0, bytes: 0, across: 1, deep: 1, pitch: HATCH, a: 0, b: 0, h: 0 };
 
 export function size(files: number, bytes: number): Size {
   if (!files) return NOTHING;
@@ -39,6 +39,7 @@ export function size(files: number, bytes: number): Size {
   const pitch = Math.min(HATCH, ROOF / across);
   return {
     files,
+    bytes,
     across,
     deep,
     pitch,

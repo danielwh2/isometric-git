@@ -1,0 +1,128 @@
+---
+/**
+ * Stamp: a dialog that turns the factory on screen into a stamp to post: its picture, a score, a rank.
+ * The look can be changed, the stamp saved as an image, and a link copied that carries it, so whoever
+ * opens the link sees it beside their own.
+ *
+ *   <Stamp />
+ *
+ * It takes no props. Its script (src/lib/stamper.ts) reads the factory from the Factory organism's
+ * script, so it needs one on the page, and it binds to the ids below, so there is one Stamp to a page.
+ * Place it outside the element that holds the Factory: an expanded factory makes its siblings inert.
+ *
+ * From outside
+ *   [data-stamp]  any button on the page carrying this attribute opens the dialog.
+ *   [data-open]   the dialog's own "Open your repo" button uses the page's folder picker.
+ *
+ * The dialog is the platform's own, so focus, Escape and the page behind are the browser's to manage.
+ */
+const colours = [
+  { name: "paper", label: "Paper", value: "#f0f2ec" },
+  { name: "ink", label: "Ink", value: "#2f4a3b" },
+  { name: "accent", label: "Accent", value: "#c8553d" },
+];
+const stats = ["machines", "files", "belts", "commits"];
+---
+
+<dialog class="stamp" id="stamp" aria-labelledby="stamp-name">
+  <header>
+    <h2 id="stamp-name">Stamp</h2>
+    <button type="button" class="button" id="stamp-close">Close</button>
+  </header>
+
+  <div class="body">
+    <div class="sheets">
+      <figure>
+        <canvas id="stamp-mine" role="img" width="1080" height="1080"></canvas>
+      </figure>
+      <figure id="stamp-rival" hidden>
+        <canvas id="stamp-theirs" role="img" width="1080" height="1080"></canvas>
+        <figcaption>
+          <span id="stamp-verdict" role="status"></span>
+          <button type="button" class="button" id="stamp-answer" data-open hidden>Open your repo</button>
+        </figcaption>
+      </figure>
+    </div>
+
+    <form class="look" id="stamp-look">
+      <label class="text">Title<input type="text" id="stamp-title" maxlength="40" autocomplete="off" spellcheck="false" /></label>
+      <fieldset>
+        <legend>Colours</legend>
+        {colours.map(({ name, label, value }) => <label><input type="color" name={name} value={value} />{label}</label>)}
+      </fieldset>
+      <fieldset>
+        <legend>Numbers</legend>
+        {stats.map((stat) => <label><input type="checkbox" name={stat} checked />{stat}</label>)}
+      </fieldset>
+      <fieldset>
+        <legend>Shape</legend>
+        <label><input type="checkbox" name="shape" />Wide</label>
+      </fieldset>
+    </form>
+  </div>
+
+  <footer>
+    <button type="button" class="button button-solid" id="stamp-save">Save image</button>
+    <button type="button" class="button swap" id="stamp-link"><span>Copy challenge link</span><span aria-hidden="true">Copied</span></button>
+    <input type="text" id="stamp-url" aria-label="Challenge link" readonly hidden />
+  </footer>
+</dialog>
+
+<script>
+  import "../../lib/stamper";
+</script>
+
+<style>
+  .stamp { --across: 940px; /* two stamps side by side with the options beside them */ --options: 190px; /* the longest label, "Copy challenge link" aside, fits */ --clear: 16px; /* kept free around it on a small screen */
+    width: min(var(--across), calc(100vw - 2 * var(--clear))); max-height: calc(100dvh - 2 * var(--clear)); padding: 0; font-size: 12px; color: var(--ink); background: var(--bg); border: 1px solid var(--ink); border-radius: var(--radius); overflow-y: auto; overscroll-behavior: contain; }
+  .stamp::backdrop { background: var(--veil); }
+  /* A surface the user opened: in from 0.95, out the way it came and a fifth faster. */
+  .stamp { opacity: 0; transform: scale(0.95); transition: opacity calc(var(--opened) * 0.8) var(--ease), transform calc(var(--opened) * 0.8) var(--ease), overlay calc(var(--opened) * 0.8) allow-discrete, display calc(var(--opened) * 0.8) allow-discrete; }
+  .stamp[open] { opacity: 1; transform: none; transition-duration: var(--opened); }
+  @starting-style { .stamp[open] { opacity: 0; transform: scale(0.95); } }
+  .stamp[data-keyed] { transition: none; } /* opened from the keyboard, or by the page itself */
+  @media (prefers-reduced-motion: reduce) { .stamp, .stamp[open] { transform: none; } @starting-style { .stamp[open] { transform: none; } } }
+
+  header, footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; }
+  header { justify-content: space-between; border-bottom: 1px solid var(--ink-30); }
+  footer { border-top: 1px solid var(--ink-30); }
+  h2 { font-size: 13px; letter-spacing: -0.01em; }
+
+  .body { display: grid; grid-template-columns: minmax(0, 1fr) var(--options); gap: 20px; padding: 14px; align-items: start; }
+  .sheets { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+  figure { display: grid; gap: 8px; margin: 0; min-width: 0; }
+  canvas { display: block; width: 100%; height: auto; }
+  figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; color: var(--ink-80); min-height: 1lh; } /* the verdict's line is there before its words are */
+
+  .look { display: grid; gap: 14px; min-width: 0; }
+  fieldset { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+  legend, .text { padding: 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-80); }
+  legend { margin-bottom: 4px; }
+  .text { display: grid; gap: 4px; }
+  label:not(.text) { display: flex; align-items: center; gap: 8px; text-transform: capitalize; cursor: pointer; }
+  input { font: inherit; letter-spacing: -0.01em; color: var(--ink); accent-color: var(--ink); margin: 0; }
+  input[type="text"] { width: 100%; min-width: 0; padding: 2px 6px; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); text-transform: none; }
+  input[type="color"] { width: 22px; height: 22px; padding: 0; background: none; border: 1px solid var(--ink-30); border-radius: var(--radius); cursor: pointer; }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+  input[type="color"]::-webkit-color-swatch { border: 0; }
+  input[type="color"]::-moz-color-swatch { border: 0; }
+  #stamp-url { flex: 1; min-width: 12ch; }
+
+  /* Both faces of the copy button share one cell, so the button keeps the wider one's width. */
+  .swap { display: inline-grid; justify-items: center; }
+  .swap span { grid-area: 1 / 1; transition: opacity var(--quick) var(--ease), filter var(--quick) var(--ease); }
+  .swap span + span, .swap[data-done] span:first-child { opacity: 0; filter: blur(2px); }
+  .swap[data-done] span + span { opacity: 1; filter: none; }
+
+  @media (max-width: 720px) {
+    .body { grid-template-columns: minmax(0, 1fr); }
+    .sheets { grid-auto-flow: row; }
+    .look { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .text { grid-column: 1 / -1; }
+  }
+  @media (pointer: coarse) {
+    input[type="text"] { font-size: 16px; } /* iOS zooms the page when a smaller field takes focus */
+    label:not(.text) { min-height: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .swap span { transition: none; } }
+</style>

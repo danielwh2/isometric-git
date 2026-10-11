@@ -11,6 +11,7 @@ import Figure from "../components/molecules/Figure.astro";
 import SectionHead from "../components/molecules/SectionHead.astro";
 import Factory from "../components/organisms/Factory.astro";
 import SiteFooter from "../components/organisms/SiteFooter.astro";
+import Stamp from "../components/organisms/Stamp.astro";
 import "../styles/global.css";
 
 const title = "Isometric Git";
@@ -68,6 +69,8 @@ const description = "Drop a repo folder and watch it built as an isometric facto
 
   <SiteFooter />
 </main>
+<!-- Outside main: expanding the factory makes its siblings inert, and the stamp must still open over it. -->
+<Stamp />
 
 <script>
   import { palette, reduced } from "../lib/ink";

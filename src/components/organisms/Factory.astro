@@ -11,6 +11,7 @@
  *
  * From outside
  *   [data-open]  any button on the page carrying this attribute opens the folder picker.
+ *   [data-stamp] the bar's own button for the Stamp organism, if the page has one.
  *   Dropping a folder anywhere on the page draws it.
  *
  * Its styles are global because the script builds the tags, the commit lines
@@ -33,6 +34,7 @@ const step = scan.steps.at(-1)!;
   <div class="bar">
     <p class="where"><strong id="repo">{scan.name}, a sample</strong><span id="counts">{tally(frames.at(-1)!)}</span><span id="commits"></span></p>
     <button type="button" class="button" data-open>Open folder</button>
+    <button type="button" class="button" data-stamp>Make a stamp</button>
     <button type="button" class="button" id="expand">Expand</button>
     <input type="file" id="picker" webkitdirectory hidden />
   </div>
