@@ -13,7 +13,7 @@ export interface Folder {
 }
 
 export type GitObject = { type: "commit" | "tree" | "blob" | "tag"; data: Uint8Array };
-export type Commit = { hash: string; tree: string; parent?: string; date: string; subject: string };
+export type Commit = { hash: string; tree: string; /** The first is the line the branch itself took. A merge has more. */ parents: string[]; date: string; subject: string };
 export type Entry = { name: string; hash: string; folder: boolean; file: boolean };
 
 const SHA = 20; // bytes in a SHA-1
@@ -242,6 +242,13 @@ export class Git {
     return named(packed.split("\n").find((line) => line.endsWith(` ${ref}`))?.split(" ")[0]);
   }
 
+  /** What the repo was halfway through when it was handed over, if anything. HEAD is still its last commit. */
+  async midway(): Promise<"merge" | "rebase" | undefined> {
+    if ((await this.folder.size("MERGE_HEAD")) !== undefined) return "merge";
+    for (const state of ["rebase-merge", "rebase-apply"]) if ((await this.folder.list(state)).length) return "rebase";
+    return undefined;
+  }
+
   async object(hash: string, depth = 0): Promise<GitObject | undefined> {
     if (!NAME.test(hash)) return undefined; // a damaged tree or commit can name anything
     const loose = await this.folder.read(`objects/${hash.slice(0, 2)}/${hash.slice(2)}`);
@@ -268,7 +275,7 @@ export class Git {
     return {
       hash,
       tree: header("tree") ?? "",
-      parent: header("parent"), // the first parent: the line the branch itself took
+      parents: headers.split("\n").flatMap((line) => (line.startsWith("parent ") ? [line.slice("parent ".length)] : [])),
       date: Number.isNaN(when.getTime()) ? "" : when.toISOString().slice(0, 10), // a timestamp can run past the calendar
       subject: message.join("\n\n").split("\n")[0] ?? "",
     };

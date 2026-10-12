@@ -1,4 +1,4 @@
-// The five figures under "How to read it". Each is a tiny repo run through the same planner and
+// The figures under "How to read it". Each is a tiny repo run through the same planner and
 // painter as the factory, so a figure is the mark itself and cannot drift from it.
 import { advance, aim, build, fit, paint, screen, type Palette, type Scene, type View } from "./factory";
 import { plan } from "./plan";
@@ -8,6 +8,7 @@ const SCALE = 30; // px per unit in a figure: close enough that hatches, rollers
 const PAD = 14; // px kept clear inside a figure
 const PUFF_EVERY = 2600; // ms between the smoke figure's commits
 const PUFFS = 2;
+const DELIVERY = { crates: 4, every: 4200, stands: 2600 }; // the merge figure's crates: how many, ms from one delivery to the next, and ms they stand
 const STILL_PUFFS = [150, 500, 850]; // ms old: under reduced motion nothing moves, so the smoke figure holds three puffs at these ages
 const CHIMNEY_HALF = 0.3; // world units: lifts the centre so a machine and its chimney sit in the middle together
 const MAX_FRAME = 64; // ms. A longer gap is a tab coming back, not a frame.
@@ -28,24 +29,28 @@ const ONE = tiny({ src: { files: 6, kb: 60 } });
 const TWO = tiny({ lib: { files: 4, kb: 30 }, app: { files: 6, kb: 60, takes: "lib" } });
 
 /** What each figure shows. `focus` centres one machine; without it the whole scene is framed. */
-const FIGURES: Record<string, { scan: Scan; focus?: string; hatch?: number; smoke?: boolean }> = {
+const FIGURES: Record<string, { scan: Scan; focus?: string; hatch?: number; smoke?: boolean; merge?: boolean; contested?: number[] }> = {
   machine: { scan: ONE, focus: "src" },
   hatch: { scan: ONE, focus: "src", hatch: 4 },
   belt: { scan: TWO },
   smoke: { scan: ONE, focus: "src", smoke: true },
   pennant: { scan: TWO, focus: "app" },
+  merge: { scan: ONE, focus: "src", merge: true },
+  conflict: { scan: ONE, focus: "src", contested: [4] },
 };
 
 export function legend(palette: Palette, reduced: boolean) {
   const figures = [...document.querySelectorAll<HTMLCanvasElement>("canvas[data-figure]")].map((canvas) => {
-    const { scan, focus, hatch, smoke } = FIGURES[canvas.dataset.figure!]!;
+    const { scan, focus, hatch, smoke, merge, contested } = FIGURES[canvas.dataset.figure!]!;
     const layout = plan(scan, new Set(), false);
     const scene: Scene = build(layout);
     aim(scene, layout.frames[0]!, true);
     const centre = scene.machines.find((machine) => machine.name === focus);
     if (centre && hatch !== undefined) scene.hot = { machine: centre.id, hatch };
     if (centre && smoke && reduced) centre.puffs = [...STILL_PUFFS];
-    return { canvas, ctx: canvas.getContext("2d")!, scene, centre, smoke, sinceCommit: PUFF_EVERY };
+    if (centre && contested) centre.contested = contested;
+    if (centre && merge && reduced) centre.crates = centre.stock = DELIVERY.crates;
+    return { canvas, ctx: canvas.getContext("2d")!, scene, centre, smoke, merge, sinceCommit: PUFF_EVERY, sinceDelivery: 0 };
   });
   if (!figures.length) return;
 
@@ -62,6 +67,7 @@ export function legend(palette: Palette, reduced: boolean) {
         figure.sinceCommit = 0;
         centre!.owed = PUFFS;
       }
+      if (figure.merge && !reduced) centre!.crates = (figure.sinceDelivery += dt) % DELIVERY.every < DELIVERY.stands ? DELIVERY.crates : 0;
       advance(scene, dt, 1, !reduced);
       let view: View | undefined;
       if (centre) {

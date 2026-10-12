@@ -2,7 +2,7 @@
 // as an image and copies a link that carries it. A page opened from such a link shows both stamps.
 import { shown } from "./app";
 import { palette } from "./ink";
-import { blueprintOf, pack, paintStamp, rankOf, sceneOf, scoreOf, STATS, unpack, type Blueprint, type Look, type Stat } from "./stamp";
+import { blueprintOf, pack, paintStamp, rankOf, sceneOf, scoreOf, STATS, unpack, type Blueprint, type Look, type Stat, type Style } from "./stamp";
 import type { Scene } from "./factory";
 
 const SQUARE = [1080, 1080] as const; // px the image is saved at: what a post shows without cropping
@@ -17,6 +17,7 @@ const title = $<HTMLInputElement>("stamp-title");
 const verdict = $("stamp-verdict");
 const answer = $("stamp-answer");
 const copy = $("stamp-link");
+const said = $("stamp-said");
 const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
 
 type Sheet = { canvas: HTMLCanvasElement; blueprint: Blueprint; scene: Scene };
@@ -27,9 +28,10 @@ const rival = location.hash.startsWith(LINK) ? unpack(location.hash.slice(LINK.l
 const theirs = rival && sheet("stamp-theirs", rival.blueprint);
 $("stamp-rival").hidden = !theirs;
 let mine: Sheet | undefined;
-let of: unknown; // the scan `mine` was made from
+let drawn: unknown; // the plan `mine` was made from
+let named: unknown; // the scan the title was taken from
 
-const look = (): Look => ({ title: title.value.trim(), paper: field("paper").value, ink: field("ink").value, accent: field("accent").value });
+const look = (): Look => ({ title: title.value.trim(), paper: field("paper").value, ink: field("ink").value, accent: field("accent").value, style: field("style").value as Style }); // "style" is a group of radios, whose list answers with the one that is checked
 const describe = (name: string, blueprint: Blueprint) => `${name}: ${rankOf(scoreOf(blueprint))}, ${scoreOf(blueprint).toLocaleString("en")} points`;
 
 function render() {
@@ -55,12 +57,12 @@ function render() {
 /** `keyed` opens it without motion: nothing started from the keyboard animates. */
 function open(keyed: boolean) {
   const { scan, plan } = shown();
-  if (of !== scan) {
-    // A new repo: its own factory and its own name. Colours and choices carry over.
-    mine = sheet("stamp-mine", blueprintOf(plan, scan.commits));
-    title.value = scan.name;
-    of = scan;
-  }
+  // A new repo has its own factory and its own name, and splitting a folder out lays the same repo out again.
+  // Colours and choices carry over.
+  if (drawn !== plan) mine = sheet("stamp-mine", blueprintOf(plan, scan.commits));
+  if (named !== scan) title.value = scan.name;
+  drawn = plan;
+  named = scan;
   dialog.toggleAttribute("data-keyed", keyed);
   if (!dialog.open) dialog.showModal();
   render();
@@ -93,8 +95,12 @@ copy.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(url);
     copy.toggleAttribute("data-done", true);
+    said.textContent = "Challenge link copied";
     clearTimeout(reverting);
-    reverting = window.setTimeout(() => copy.toggleAttribute("data-done", false), COPIED);
+    reverting = window.setTimeout(() => {
+      copy.toggleAttribute("data-done", false);
+      said.textContent = "";
+    }, COPIED);
   } catch {
     // No clipboard here, as inside some frames: show the link, selected, to be copied by hand.
     shownLink.hidden = false;

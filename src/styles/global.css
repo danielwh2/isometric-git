@@ -13,14 +13,13 @@
 }
 
 /* One look by choice: Anneal's forest on sage. Text is the ink or its 80 per
-   cent step; 30, 12 and 5 are for lines and washes only. */
+   cent step; 30 and 12 are for lines only. */
 :root {
   --bg: #F0F2EC;
   --ink: #2F4A3B;
   --ink-80: rgb(47 74 59 / 0.8); /* every word that is not a heading. 5.05:1 on the ground; Anneal's 70 step is 3.93:1, under AA for text this small */
   --ink-30: rgb(47 74 59 / 0.3);
   --ink-12: rgb(47 74 59 / 0.12);
-  --ink-5: rgb(47 74 59 / 0.05);
   /* The boxes are the one place colour lives. Flat tones, no gradients: each card is top, left wall,
      right wall and edge, lit from the upper left like the lot itself. */
   --kraft-1: #E9C68D #D8AD6C #C39457 #94703C;
@@ -29,6 +28,7 @@
   --tape: #F6EEDC;
   /* One to a machine, on its awning and on the label of each box it sends. Muted enough to sit on sage. */
   --labels: #C8553D #D9A21B #2F8F83 #3F6FB0 #8E5A9B #6E8F3A #E07A5F #56657A;
+  --hazard: #D9A21B; /* the tape on a roof hatch both branches of a merge changed */
   --veil: rgb(240 242 236 / 0.86); /* the ground, laid over the factory while a folder hovers */
   --font-mono: "Paper Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --col: 1180px; /* wide enough for the factory; text keeps to its own measure */

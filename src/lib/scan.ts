@@ -13,13 +13,28 @@ export type Step = {
   gone: number[];
   /** Files whose contents changed in this step. */
   touched: number[];
+  /** Set when the commit is a merge: how many commits it brought in from the branches it joined, or 0 when they were not counted. */
+  merge?: number;
+  /** On a merge whose parents could be read: the files it changed against the line before it. In a sampled history the step holds more than the merge. */
+  delivered?: number[];
+  /** And those of them both branches had changed, which the merge settled. Git may have settled some without asking. */
+  contested?: number[];
 };
-export type Scan = { name: string; commits: number; paths: string[]; steps: Step[] };
+export type Scan = {
+  name: string;
+  /** Commits on the branch's own line. What merges brought in is counted on their steps. */
+  commits: number;
+  paths: string[];
+  steps: Step[];
+  /** The repo was handed over halfway through one of these: its last commit is drawn, the changes still to be committed are not. */
+  midway?: "merge" | "rebase";
+};
 export type Progress = (phase: "history" | "steps", done: number, total: number) => void;
 
 const MAX_STEPS = 150; // ponytail: longer histories are sampled evenly along the first-parent line. Raise it, or sample by change size, if replays feel coarse.
 const MAX_PARSED = 1 << 20; // bytes. Anything larger is a bundle or data: it counts as a file but lays no belts.
 const HISTORY_TICK = 50; // commits between progress reports while walking back
+const MAX_JOINED = 50_000; // commits read off the branch's own line to count what its merges brought in. Past it a merge is still named, with no count.
 const MAX_CONFIG = 64 << 10; // bytes. A real tsconfig or package.json is a few kB; a larger one is skipped rather than parsed.
 const MAX_PATH = 4096; // characters. No real path is longer, so a longer one is a folder that contains itself.
 const MAX_TREES = 300_000; // folders read in one scan, far past any repo we have read. Beyond it the tree is damaged or built to exhaust the tab.
@@ -184,7 +199,7 @@ class Steps {
     return id;
   }
 
-  add(work: Work, touched: string[], label: Pick<Step, "hash" | "date" | "subject" | "nth">) {
+  add(work: Work, touched: string[], label: Pick<Step, "hash" | "date" | "subject" | "nth" | "merge">, own?: { changed: string[]; contested: string[] }) {
     const resolve = work.resolver();
     const next = new Map<string, { bytes: number; imports: number[] }>();
     for (const [path, source] of work.files) {
@@ -201,7 +216,10 @@ class Steps {
       if (!was || was.bytes !== now.bytes || was.imports.join() !== now.imports.join()) set.push([this.id(path), now.bytes, now.imports]);
     }
     const gone = [...this.prior.keys()].filter((path) => !next.has(path)).map((path) => this.id(path));
-    this.steps.push({ ...label, set, gone, touched: touched.map((path) => this.id(path)) });
+    // Only files standing after the step: one the merge removed has no hatch to mark and no machine to deliver to.
+    const standing = (paths: string[]) => paths.filter((path) => next.has(path)).map((path) => this.id(path));
+    const contested = own ? standing(own.contested) : [];
+    this.steps.push({ ...label, set, gone, touched: touched.map((path) => this.id(path)), delivered: own && standing(own.changed), contested: contested.length ? contested : undefined });
     this.prior = next;
   }
 }
@@ -235,6 +253,28 @@ async function diff(git: Git, before: string | undefined, after: string | undefi
   }
 }
 
+/**
+ * What a merge itself did: the files it changed against the line before it, and those of them unlike what any branch
+ * it joined held, so more than one of them had changed each. Undefined when a parent cannot be read, as in a shallow clone.
+ */
+async function mergeOf(git: Git, merge: Commit, trees: Change["trees"]): Promise<{ changed: string[]; contested: string[] } | undefined> {
+  const parents = new Set(merge.parents); // a damaged commit can name one parent a hundred thousand times
+  let changed: string[] | undefined;
+  let unlikeAll: Set<string> | undefined;
+  for (const hash of parents) {
+    const parent = await git.commit(hash);
+    // A parent whose tree is missing would read as an empty one, and every file as changed.
+    if (!parent || (await git.object(parent.tree))?.type !== "tree") return undefined;
+    const change: Change = { changed: [], removed: [], trees };
+    await diff(git, parent.tree, merge.tree, "", change);
+    const unlike = new Set(change.changed.map(({ path }) => path));
+    changed ??= [...unlike]; // the first parent is the line before it
+    unlikeAll = unlikeAll ? new Set([...unlikeAll].filter((path) => unlike.has(path))) : unlike;
+    if (!unlikeAll.size) break;
+  }
+  return { changed: changed ?? [], contested: parents.size > 1 ? [...(unlikeAll ?? [])] : [] };
+}
+
 /** A repo's history, oldest first, from its .git directory. Undefined when there are no commits to read. */
 export async function scanGit(folder: Folder, name: string, progress: Progress = () => {}): Promise<Scan | undefined> {
   const git = await Git.open(folder);
@@ -245,17 +285,41 @@ export async function scanGit(folder: Folder, name: string, progress: Progress =
     if (!commit) break; // a shallow clone: history ends where its objects do
     walked.add(hash); // a damaged commit can name itself, or one after it, as its parent
     chain.push(commit);
-    hash = commit.parent;
+    hash = commit.parents[0];
     if (chain.length % HISTORY_TICK === 0) progress("history", chain.length, 0);
   }
   if (!chain.length) return undefined;
   chain.reverse();
+
+  // What each merge brought in: the commits its other parents reach that the line before it does not.
+  // Oldest first, so a branch grown from one merged earlier counts only its own commits.
+  // A line cut short, as a shallow clone's is, counts nothing: a branch can reach back past the cut to commits
+  // that are the line's own, and they would be counted as the branch's.
+  const brought = new Map<string, number>();
+  const whole = !chain[0]!.parents.length;
+  counting: for (const merge of whole ? chain : []) {
+    if (merge.parents.length < 2) continue;
+    let count = 0;
+    for (const queue = merge.parents.slice(1); queue.length; ) {
+      const hash = queue.pop()!;
+      if (walked.has(hash)) continue;
+      if (walked.size >= chain.length + MAX_JOINED) break counting;
+      walked.add(hash);
+      const joined = await git.commit(hash);
+      if (!joined) continue; // a shallow clone, again
+      count += 1;
+      for (const parent of joined.parents) queue.push(parent); // one at a time: a damaged commit can name more parents than a call takes arguments
+      if (walked.size % HISTORY_TICK === 0) progress("history", walked.size, 0);
+    }
+    brought.set(merge.hash, count);
+  }
   const picks = chain.length <= MAX_STEPS ? chain.map((_, index) => index) : Array.from({ length: MAX_STEPS }, (_, index) => Math.round((index * (chain.length - 1)) / (MAX_STEPS - 1)));
 
   const work = new Work();
   const steps = new Steps();
   let tree: string | undefined;
   const trees = { read: 0 };
+  const settling = { read: 0 }; // folders read to find what merges did, counted apart: running out ends the marking, not the scan
   for (const [done, pick] of picks.entries()) {
     const commit = chain[pick]!;
     const change: Change = { changed: [], removed: [], trees };
@@ -273,10 +337,14 @@ export async function scanGit(folder: Folder, name: string, progress: Progress =
     }
     const touched = [...removed, ...read].filter((path) => SOURCE.test(path));
     // A commit that changed no source file draws nothing new, so it is not a step.
-    if (touched.length) steps.add(work, touched, { hash: commit.hash.slice(0, 7), date: commit.date, subject: commit.subject, nth: pick + 1 });
+    if (touched.length) {
+      const merge = commit.parents.length > 1;
+      const own = merge && settling.read <= MAX_TREES ? await mergeOf(git, commit, settling).catch(() => undefined) : undefined;
+      steps.add(work, touched, { hash: commit.hash.slice(0, 7), date: commit.date, subject: commit.subject, nth: pick + 1, merge: merge ? (brought.get(commit.hash) ?? 0) : undefined }, own);
+    }
     progress("steps", done + 1, picks.length);
   }
-  return { name, commits: chain.length, paths: steps.paths, steps: steps.steps };
+  return { name, commits: chain.length, paths: steps.paths, steps: steps.steps, midway: await git.midway() };
 }
 
 /** A folder with no history: one step holding everything in it. */

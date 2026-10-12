@@ -4,7 +4,7 @@
 // Layout language: a single left-aligned column in the tool's own look, forest
 // ink on sage in one mono face. A headline and one button, then the factory
 // itself as the hero, running on a sample repo before the visitor does anything.
-// Below it, five live figures that say what each mark means, a note on where
+// Below it, live figures that say what each mark means, a note on where
 // the visitor's code goes (nowhere), and the button again.
 import Button from "../components/atoms/Button.astro";
 import Figure from "../components/molecules/Figure.astro";
@@ -53,13 +53,15 @@ const description = "Drop a repo folder and watch it built as an isometric facto
       <Figure name="belt" title="Belt">What one folder imports from another. More imports, more boxes, each labelled in its sender's colour.</Figure>
       <Figure name="smoke" title="Smoke">A commit just changed files here.</Figure>
       <Figure name="pennant" title="Pennant">Nothing imports this folder. A line ends here.</Figure>
+      <Figure name="merge" title="Crates">A branch was merged. Its work is set down beside each machine it changed, a crate a file.</Figure>
+      <Figure name="conflict" title="Striped hatch">Both branches changed this file, and the merge settled it.</Figure>
     </ul>
   </section>
 
   <section class="note">
     <SectionHead title="Nothing leaves your machine" />
     <p>The page reads the folder you give it, <code>.git</code> included, inside your browser. There is no server behind it and no upload. Once the page has loaded it makes no request at all, which you can watch in the network tab.</p>
-    <p>It follows JavaScript and TypeScript imports, tsconfig paths and workspace packages. Other languages still get machines, with no belts between them yet. A history longer than 150 commits is sampled down to 150 steps.</p>
+    <p>It follows JavaScript, TypeScript and CSS imports, tsconfig paths and workspace packages. Other languages still get machines, with no belts between them yet. A merged branch lands as one step, and a history longer than 150 commits is sampled down to 150 steps.</p>
   </section>
 
   <section class="close">
@@ -103,7 +105,7 @@ const description = "Drop a repo folder and watch it built as an isometric facto
   @keyframes rise { from { opacity: 0; transform: translateY(var(--rise-distance)); } }
 
   .read { display: grid; gap: clamp(20px, 3vw, 36px); }
-  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr)); gap: 28px 24px; }
+  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 28px 24px; } /* four across on a desktop: seven figures sit as four and three */
 
   .note { display: grid; gap: 14px; max-width: var(--measure); color: var(--ink-80); text-wrap: pretty; }
   .note :global(.head) { margin-bottom: 6px; color: var(--ink); }

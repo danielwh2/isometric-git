@@ -1,7 +1,7 @@
 // The layout's promise: every machine has its own cell and no belt runs through a machine it does not serve.
 import { expect, test } from "bun:test";
 import sample from "../src/data/sample.json";
-import { BELT, plan } from "../src/lib/plan";
+import { BELT, filesAt, plan, rosterOf } from "../src/lib/plan";
 import type { Scan } from "../src/lib/scan";
 
 test("belts keep to the gutters", () => {
@@ -37,4 +37,19 @@ test("a path that never held a file does not stall the layout", () => {
   const set = folders.map((_, file): [number, number, number[]] => [file, 1024, []]);
   const scan: Scan = { name: "partial", commits: 1, paths, steps: [{ hash: "", date: "", subject: "", nth: 1, set, gone: [], touched: [4] }] };
   expect(plan(scan).machines.filter((machine) => folders.includes(machine.name)).length).toBe(4);
+});
+
+test("a merge sets crates down where it changed files and stripes the hatches both branches changed", () => {
+  const scan = sample as unknown as Scan;
+  const { machines, frames, home } = plan(scan);
+  const at = scan.steps.findIndex((step) => step.merge !== undefined);
+  const { delivered, contested, touched } = frames[at]!;
+  expect([...delivered]).toEqual([...touched]);
+  expect(delivered.size).toBeGreaterThan(1);
+  // Each striped hatch is the one its file sits under.
+  const striped = [...contested].flatMap(([machine, hatches]) => hatches.map((hatch) => scan.paths[rosterOf(scan, filesAt(scan, at), home, machine)[hatch]!]));
+  expect(striped.sort()).toEqual(scan.steps[at]!.contested!.map((file) => scan.paths[file]).sort());
+  expect([...contested.keys()].map((machine) => machines[machine]!.name).sort()).toEqual(["apps/api/src/routes", "packages/db"]);
+  // Any other step delivers nothing.
+  frames.forEach((frame, step) => step === at || expect(frame.delivered.size + frame.contested.size).toBe(0));
 });

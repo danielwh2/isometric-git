@@ -30,6 +30,15 @@ const TAPE_DROP = 0.45; // share of a wall the tape runs down
 const LABEL_WIDE = 0.5; // half the label's width, as a share of half the box
 const LABEL_LOW = 0.22; // the label's bottom and top, as shares of the box's height
 const LABEL_HIGH = 0.6;
+// A merge's delivery: crates of one size, so they stack, set down in front of the wall that faces the aisle.
+const CRATE = { half: 0.19, tall: 0.3 };
+const CRATE_STEP = 0.46; // between one stack and the next along the wall
+const CRATE_HIGH = 2; // crates to a stack
+const PALLET = 0.06; // a stack's pallet shows this far round it, which tells a delivery from a box that fell off a belt
+const CRATES_MOST = 6; // beside one machine. A branch that changed more files there still sends six.
+const CRATE_DROP = 0.5; // a crate comes down through this much as it is set down
+const CRATE_CLEAR = 2.2; // a stack's far edge stays this close to the machine's centre: the aisle's belt starts at 2.25
+const HAZARD = [[0.2, 0.6], [1, 1.4], [1.8, 2]] as const; // the stripes on a contested hatch, as bands of u + v across it
 const PUFF_RISE = 1.3;
 const PUFF_GROW = 0.22;
 const PUFF_START = 0.07;
@@ -54,6 +63,7 @@ const HATCH_SETTLE = 250; // ms: a big batch fits faster so no roof takes much l
 const MAX_PUFFS = 3;
 const PUFF_EVERY = 240; // ms between puffs
 const PUFF_LIFE = 1100;
+const CRATE_EVERY = 110; // ms between one crate set down and the next
 
 const SIZE_STIFF = 14; // spring rate for a machine changing size: settles in about 0.4s, no overshoot
 // A roller shutter runs at a steady rate, eased at each end of its travel, and comes down slower than it goes up.
@@ -64,6 +74,7 @@ const HOVER = 40; // ms time constant for ink. Hover is seen constantly, so it i
 
 // Level of detail, in px. Below these a detail is noise, so it is left out.
 const HATCH_MIN = 3;
+const HAZARD_MIN = 6; // across a hatch before its stripes are drawn. Below it the hatch is the one flat colour.
 const SLAT_MIN = 3; // between slats, and across a transfer plate's inner square
 const BOX_DETAIL_MIN = 7; // across a box before its tape and label are drawn
 const STRUT_MIN = 9; // between wall struts
@@ -84,6 +95,8 @@ export type Palette = {
   tape: string;
   /** One colour to a machine, on its awning and on the label of every box it sends. */
   labels: string[];
+  /** The tape on a hatch whose file both branches changed. */
+  hazard: string;
 };
 export type Spring = { at: number; speed: number };
 type Point = [x: number, y: number, z?: number];
@@ -117,6 +130,12 @@ export type MachineState = {
   puffs: number[];
   owed: number;
   sincePuff: number;
+  /** Crates a merge sets down beside it at this step. */
+  crates: number;
+  /** How many are standing now: the last one counts in part while it comes down. */
+  stock: number;
+  /** Roof hatches whose files both branches of this step's merge had changed. */
+  contested: number[];
 };
 export type BeltState = {
   from: number;
@@ -157,7 +176,7 @@ export function build(plan: Plan): Scene {
     size: plan.frames[0]!.sizes[id]!,
     exists: false, feeds: false, ships: false,
     a: still(), b: still(), h: still(), door: 0, doorHeld: 0,
-    rise: 0, wait: 0, hatches: 0, ink: 1, inkGoal: 1, puffs: [], owed: 0, sincePuff: 0,
+    rise: 0, wait: 0, hatches: 0, ink: 1, inkGoal: 1, puffs: [], owed: 0, sincePuff: 0, crates: 0, stock: 0, contested: [],
   }));
   const belts: BeltState[] = plan.belts.map((belt) => {
     let distance = 0;
@@ -182,6 +201,8 @@ export function aim(scene: Scene, frame: Frame, jump: boolean) {
     machine.exists = size.files > 0;
     machine.feeds = false;
     machine.ships = false;
+    machine.crates = machine.exists ? Math.min(CRATES_MOST, frame.delivered.get(machine.id) ?? 0) : 0;
+    machine.contested = frame.contested.get(machine.id) ?? [];
     if (!machine.exists) continue;
     machine.size = size;
     if (existed || machine.rise > 0) continue; // already standing, or caught mid-fall: it carries on from where it is
@@ -207,7 +228,7 @@ export function aim(scene: Scene, frame: Frame, jump: boolean) {
 
 function land(scene: Scene) {
   for (const machine of scene.machines) {
-    Object.assign(machine, { rise: machine.exists ? 1 : 0, wait: 0, hatches: machine.exists ? machine.size.files : 0, ink: machine.inkGoal, puffs: [], owed: 0 });
+    Object.assign(machine, { rise: machine.exists ? 1 : 0, wait: 0, hatches: machine.exists ? machine.size.files : 0, ink: machine.inkGoal, puffs: [], owed: 0, stock: machine.crates });
     for (const side of ["a", "b", "h"] as const) machine[side] = { at: machine.size[side], speed: 0 };
   }
   scene.belts.forEach((belt, index) => {
@@ -222,7 +243,7 @@ function land(scene: Scene) {
 
 /** ms of construction a step needs before the next one should start. */
 export function settleTime(scene: Scene): number {
-  const waits = scene.machines.filter((machine) => machine.exists && machine.rise < 1).map((machine) => machine.wait + RISE * (1 - machine.rise));
+  const waits = scene.machines.filter((machine) => machine.exists).map((machine) => (machine.rise < 1 ? machine.wait + RISE * (1 - machine.rise) : 0) + Math.max(0, machine.crates - machine.stock) * CRATE_EVERY);
   return Math.max(0, ...waits);
 }
 
@@ -252,6 +273,11 @@ export function advance(scene: Scene, dt: number, pace: number, flowing: boolean
     const step = Math.max(HATCH_PACE, Math.abs(gap) / HATCH_SETTLE) * built;
     machine.hatches = Math.abs(gap) <= step ? fitted : machine.hatches + Math.sign(gap) * step;
     machine.ink = toward(machine.ink, machine.inkGoal, dt, HOVER);
+
+    // A delivery waits for the machine to be finished, and is taken in at the pace it was set down.
+    const due = machine.rise === 1 ? machine.crates : 0;
+    const carried = built / CRATE_EVERY;
+    machine.stock = Math.abs(due - machine.stock) <= carried ? due : machine.stock + Math.sign(due - machine.stock) * carried;
 
     machine.puffs = machine.puffs.map((age) => age + dt).filter((age) => age < PUFF_LIFE);
     machine.sincePuff += dt;
@@ -478,6 +504,14 @@ export function paint(ctx: Pen, scene: Scene, view: View, palette: Palette) {
     }
   }
 
+  /** A cardboard box as its three faces that show, standing on `low`. */
+  const cardboard = (left: number, right: number, back: number, front: number, low: number, high: number, card: number) => {
+    const [top, leftWall, rightWall, edge] = palette.kraft[card]!;
+    face([[left, front, low], [right, front, low], [right, front, high], [left, front, high]], leftWall, edge);
+    face([[right, back, low], [right, front, low], [right, front, high], [right, back, high]], rightWall, edge);
+    face([[left, back, high], [right, back, high], [right, front, high], [left, front, high]], top, edge);
+  };
+
   const carton = (box: Box, x: number, y: number) => {
     const belt = scene.belts[box.belt]!;
     const sender = scene.machines[belt.from]!;
@@ -492,11 +526,8 @@ export function paint(ctx: Pen, scene: Scene, view: View, palette: Palette) {
       if (right <= door) return;
       left = Math.max(left, door);
     }
-    const [top, leftWall, rightWall, edge] = palette.kraft[card]!;
     ctx.globalAlpha = belt.ink;
-    face([[left, front, 0], [right, front, 0], [right, front, tall], [left, front, tall]], leftWall, edge);
-    face([[right, back, 0], [right, front, 0], [right, front, tall], [right, back, tall]], rightWall, edge);
-    face([[left, back, tall], [right, back, tall], [right, front, tall], [left, front, tall]], top, edge);
+    cardboard(left, right, back, front, 0, tall, card);
     if (2 * half * GROUND_WIDTH * k < BOX_DETAIL_MIN) return;
 
     // Tape runs over the top and a little way down the wall it meets. The label goes on the other wall,
@@ -516,6 +547,28 @@ export function paint(ctx: Pen, scene: Scene, view: View, palette: Palette) {
       }
       face([[right, y - half * LABEL_WIDE, low], [right, y + half * LABEL_WIDE, low], [right, y + half * LABEL_WIDE, high], [right, y - half * LABEL_WIDE, high]], label);
     }
+  };
+
+  // What a merge brought in for a machine: stacks of crates along the wall that faces the aisle, from its left corner.
+  // They carry no label, because no machine sent them.
+  const delivery = (machine: MachineState) => {
+    if (machine.stock < GONE) return;
+    const { half, tall } = CRATE;
+    const stacks = Math.max(1, Math.floor((2 * machine.a.at) / CRATE_STEP)); // a narrow machine has room for fewer
+    const y = Math.min(machine.y + machine.b.at + PAD + half, machine.y + CRATE_CLEAR - half);
+    for (let nth = 0; nth < Math.min(Math.ceil(machine.stock), stacks * CRATE_HIGH); nth++) {
+      const down = clamp(machine.stock - nth); // 1 once it stands
+      const x = machine.x - machine.a.at + half + Math.floor(nth / CRATE_HIGH) * CRATE_STEP;
+      const low = (nth % CRATE_HIGH) * tall + (1 - down) ** 2 * CRATE_DROP;
+      ctx.globalAlpha = machine.ink * down;
+      if (nth % CRATE_HIGH === 0) face(square(x, y, half + PALLET), shade(SIDE), shade(1));
+      cardboard(x - half, x + half, y - half, y + half, low, low + tall, (machine.id + nth) % CARDS);
+      if (2 * half * GROUND_WIDTH * k < BOX_DETAIL_MIN) continue;
+      const band = half * TAPE;
+      face([[x - half, y - band, low + tall], [x + half, y - band, low + tall], [x + half, y + band, low + tall], [x - half, y + band, low + tall]], palette.tape);
+      face([[x + half, y - band, low + tall], [x + half, y + band, low + tall], [x + half, y + band, low + tall * (1 - TAPE_DROP)], [x + half, y - band, low + tall * (1 - TAPE_DROP)]], palette.tape);
+    }
+    ctx.globalAlpha = 1;
   };
 
   const building = (machine: MachineState) => {
@@ -591,19 +644,38 @@ export function paint(ctx: Pen, scene: Scene, view: View, palette: Palette) {
     }
 
     const gap = size.pitch * HATCH_GAP;
-    if ((size.pitch - gap) * GROUND_WIDTH * k >= HATCH_MIN) {
-      const hatch = (index: number): Point[] => {
-        const hx = left + RIM + (index % size.across) * size.pitch + gap / 2;
-        const hy = back + RIM + Math.floor(index / size.across) * size.pitch + gap / 2;
-        const [hx1, hy1] = [hx + size.pitch - gap, hy + size.pitch - gap];
-        return [[hx, hy, h], [hx1, hy, h], [hx1, hy1, h], [hx, hy1, h]];
-      };
+    const across = size.pitch - gap;
+    const hatch = (index: number): [Point, Point, Point, Point] => {
+      const hx = left + RIM + (index % size.across) * size.pitch + gap / 2;
+      const hy = back + RIM + Math.floor(index / size.across) * size.pitch + gap / 2;
+      return [[hx, hy, h], [hx + across, hy, h], [hx + across, hy + across, h], [hx, hy + across, h]];
+    };
+    const detailed = across * GROUND_WIDTH * k >= HATCH_MIN;
+    if (detailed) {
       ctx.beginPath();
       for (let index = 0; index < Math.floor(machine.hatches); index++) trace(hatch(index), true);
       ctx.strokeStyle = line;
       ctx.stroke();
-      if (scene.hot?.machine === machine.id && scene.hot.hatch < machine.hatches) face(hatch(scene.hot.hatch), line, line);
     }
+    // A hatch both branches changed wears hazard tape. Its colour shows however far out the camera is.
+    for (const index of machine.contested) {
+      if (index >= machine.hatches) continue;
+      ctx.globalAlpha = machine.ink;
+      face(hatch(index), palette.hazard, detailed ? line : undefined);
+      ctx.globalAlpha = 1;
+      if (across * GROUND_WIDTH * k < HAZARD_MIN) continue;
+      const [[x0, y0], , [x1, y1]] = hatch(index);
+      const at = (u: number, v: number): Point => [x0 + (x1 - x0) * u, y0 + (y1 - y0) * v, h];
+      // Where the line u + v = sum crosses the hatch's edge: low on it, then high.
+      const cut = (sum: number): [Point, Point] => (sum <= 1 ? [at(sum, 0), at(0, sum)] : [at(1, sum - 1), at(sum - 1, 1)]);
+      for (const [from, to] of HAZARD) {
+        const [low0, high0] = cut(from);
+        const [low1, high1] = cut(to);
+        const turns = from < 1 && to > 1; // the band takes in two of the hatch's corners
+        face([low0, ...(turns ? [at(1, 0)] : []), low1, high1, ...(turns ? [at(0, 1)] : []), high0], line);
+      }
+    }
+    if (detailed && scene.hot?.machine === machine.id && scene.hot.hatch < machine.hatches) face(hatch(scene.hot.hatch), line, line);
 
     // A puff for each file a commit just changed here, up to three.
     const [px0, py0] = [left + STACK_IN + STACK_WIDE / 2, back + STACK_IN + STACK_WIDE / 2];
@@ -624,7 +696,14 @@ export function paint(ctx: Pen, scene: Scene, view: View, palette: Palette) {
   // Machines and boxes are drawn in one pass from the back of the lot to the front, so a box in
   // front of a wall covers it and a box behind one is covered. On this grid, nearer means a larger x + y.
   type Drawn = { depth: number; draw: () => void };
-  const things: Drawn[] = scene.order.map((machine) => ({ depth: machine.x + machine.y, draw: () => building(machine) }));
+  // A machine's delivery stands in front of its own wall, so it is drawn straight after it.
+  const things: Drawn[] = scene.order.map((machine) => ({
+    depth: machine.x + machine.y,
+    draw: () => {
+      building(machine);
+      delivery(machine);
+    },
+  }));
   for (const box of scene.conveyor.boxes) {
     const [x, y] = whereIs(scene.conveyor, box);
     things.push({ depth: x + y, draw: () => carton(box, x, y) });

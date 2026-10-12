@@ -14,5 +14,6 @@ export const palette: Palette = {
   kraft: ["--kraft-1", "--kraft-2", "--kraft-3"].map((token) => hexes(token) as Palette["kraft"][number]),
   tape: hexes("--tape")[0]!,
   labels: hexes("--labels"),
+  hazard: hexes("--hazard")[0]!,
 };
 export const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;

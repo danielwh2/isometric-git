@@ -4,7 +4,7 @@ import { advance, aim, build, fit, hatchAt, light, machineAt, paint, settleTime,
 import sample from "../data/sample.json";
 import type { Folder } from "./git";
 import { palette, reduced } from "./ink";
-import { filesAt, plan as makePlan, plural, tally, type FileState, type Plan } from "./plan";
+import { filesAt, mergeWords, plan as makePlan, plural, rosterOf, tally, type FileState, type Plan } from "./plan";
 import { IGNORED, scanFiles, scanGit, wanted, type Progress, type Scan } from "./scan";
 
 const STEP = 700; // ms a step holds at 1x, on top of what its construction needs
@@ -76,7 +76,7 @@ let looping = false;
 let pending = 0; // the queued frame, so the loop can never run twice
 let then = 0;
 
-/** What is on screen, for the stamp. "factory:drawn" fires on the document each time it changes. */
+/** What is on screen, for the stamp. "factory:drawn" fires on the document each time a repo is loaded. */
 export const shown = () => ({ scan, plan, sampled });
 
 const view = (): View => ({ k: camera.k.at, ox: camera.ox.at, oy: camera.oy.at });
@@ -95,7 +95,7 @@ function roster(machine: number): number[] {
   const { files, rosters } = alive();
   let found = rosters.get(machine);
   if (!found) {
-    found = [...files.keys()].filter((file) => plan.home[file] === machine).sort((p, q) => (scan.paths[p]! < scan.paths[q]! ? -1 : 1));
+    found = rosterOf(scan, files, plan.home, machine);
     rosters.set(machine, found);
   }
   return found;
@@ -118,10 +118,11 @@ function show(index: number, jump: boolean) {
   if (opened !== undefined && !scene.machines[opened]!.exists) opened = undefined;
   if (hovered !== undefined && !scene.machines[hovered]!.exists) hovered = undefined;
   relight();
+  inspect(); // before the camera is aimed: a machine that is gone takes its inspector, and the room it took, with it
   reframe(jump);
 
   range.value = String(at);
-  range.setAttribute("aria-valuetext", `Step ${at + 1} of ${plan.frames.length}: ${step.subject}`);
+  range.setAttribute("aria-valuetext", `Step ${at + 1} of ${plan.frames.length}: ${step.subject}${step.merge === undefined ? "" : `, ${mergeWords(step.merge)}`}`);
   $("at").textContent = `${at + 1} / ${plan.frames.length}`;
   $("hash").textContent = step.hash;
   $("date").textContent = step.date;
@@ -134,7 +135,6 @@ function show(index: number, jump: boolean) {
   $("repo").textContent = sampled ? `${scan.name}, a sample` : scan.name;
   $("counts").textContent = tally(frame);
   $("commits").textContent = scan.commits > plan.frames.length ? `commit ${step.nth.toLocaleString("en")} of ${scan.commits.toLocaleString("en")}` : "";
-  inspect();
 }
 
 /** Starts a scan on screen. `replay` builds it up from the first step instead of showing it finished. */
@@ -142,7 +142,11 @@ function load(next: Scan, replay: boolean) {
   scan = next;
   split = new Set();
   opened = hovered = state = undefined;
-  subjects = scan.steps.map((step) => Object.assign(document.createElement("p"), { textContent: step.subject }));
+  subjects = scan.steps.map((step) => {
+    const line = Object.assign(document.createElement("p"), { textContent: step.subject });
+    if (step.merge !== undefined) line.append(Object.assign(document.createElement("span"), { className: "merge", textContent: mergeWords(step.merge) }));
+    return line;
+  });
   // Every subject shares one grid cell, so the tallest sets the height and scrubbing moves nothing.
   $("subjects").replaceChildren(...subjects);
   replan();
@@ -200,7 +204,8 @@ function hover(machine: number | undefined, hatch?: number, px = 0, py = 0) {
   if (tip.hidden) return;
   const file = hatch === undefined ? undefined : roster(machine!)[hatch];
   const size = plan.frames[at]!.sizes[machine!]!;
-  tip.textContent = file === undefined ? `${plan.machines[machine!]!.name}  ${plural(size.files, "file")}` : `${leaf(scan.paths[file]!)}  ${kb(alive().files.get(file)!.bytes)}`;
+  const settled = file !== undefined && scan.steps[at]!.contested?.includes(file) ? "  both branches changed it" : "";
+  tip.textContent = file === undefined ? `${plan.machines[machine!]!.name}  ${plural(size.files, "file")}` : `${leaf(scan.paths[file]!)}  ${kb(alive().files.get(file)!.bytes)}${settled}`;
   tip.style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px)`;
 }
 
@@ -272,7 +277,7 @@ function reframe(jump: boolean) {
     else pad.right += inspector.offsetWidth;
   }
   framing = fit(scene, width, height, pad, CLOSEST) ?? framing;
-  if (jump) for (const axis of ["k", "ox", "oy"] as const) camera[axis] = still(framing[axis]);
+  if (jump && follow) for (const axis of ["k", "ox", "oy"] as const) camera[axis] = still(framing[axis]); // a camera the user has taken stays where they put it
 }
 
 /** The user took the camera: it stops following until Fit. */
@@ -452,7 +457,6 @@ $("i-split").addEventListener("click", () => {
   for (const [folder] of largest.slice(0, SPLIT_AT_ONCE)) split.add(folder);
   replan();
   show(at, true);
-  if (follow) reframe(false);
   $("i-close").focus(); // the button just pressed is gone
 });
 function expand(on: boolean) {
@@ -637,6 +641,7 @@ async function take(dropped: Dropped) {
     sampled = false;
     notice.hidden = true;
     load(next, true);
+    if (next.midway) say(`${dropped.name} is halfway through a ${next.midway}. This is its last commit: the changes still to be committed are not drawn.`);
   } catch (error) {
     say(`Could not read ${dropped.name}: ${error instanceof Error ? error.message : error}`);
   } finally {

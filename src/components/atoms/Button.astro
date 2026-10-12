@@ -3,8 +3,6 @@
  * Button: the page's one button. Small on purpose: the hit area grows, the control does not.
  *
  *   <Button variant="solid" data-open>Open a folder</Button>
- *   <Button id="fit">Fit</Button>
- *   <Button id="zoom-in" label="Zoom in">+</Button>
  *
  * Props
  *   variant  "solid" (the ink key at the larger size, for the page's call to action) or "quiet" (hairline). Default "quiet".
@@ -13,8 +11,7 @@
  *   .button                the quiet button
  *   .button.button-solid   the same size, filled with ink: the main action in a row of buttons
  *   .button-cta            added to a solid button to make it the page's call to action
- *   id       forwarded, so a script can bind to it.
- *   label    an aria-label, for a button whose face is a symbol.
+ *   .button-square         added to a button whose face is one symbol, so it is as wide as it is tall
  *
  * Any data-* attribute passes straight through.
  *
@@ -23,23 +20,23 @@
  */
 interface Props {
   variant?: "solid" | "quiet";
-  id?: string;
-  label?: string;
   [data: `data-${string}`]: string | boolean;
 }
-const { variant = "quiet", id, label, ...data } = Astro.props;
+const { variant = "quiet", ...data } = Astro.props;
 ---
 
-<button type="button" class:list={["button", variant === "solid" && "button-solid button-cta"]} id={id} aria-label={label} {...data}><slot /></button>
+<button type="button" class:list={["button", variant === "solid" && "button-solid button-cta"]} {...data}><slot /></button>
 
 <style is:global>
-  .button { position: relative; padding: 2px 9px; font-size: 12px; background: var(--bg); border: 1px solid var(--ink); border-radius: var(--radius); cursor: pointer; white-space: nowrap; transition: background var(--quick) var(--ease), color var(--quick) var(--ease), transform var(--quick) var(--ease); }
-  .button::after { content: ""; position: absolute; inset: -11px -3px; } /* a 44px target around a 24px control */
-  .button:active { transform: scale(0.97); }
+  .button { position: relative; padding: 2px 8px; font-size: 12px; line-height: 16px; background: var(--bg); border: 1px solid var(--ink); border-radius: var(--radius); cursor: pointer; white-space: nowrap; transition: background var(--quick) var(--ease), color var(--quick) var(--ease), transform var(--quick) var(--ease); }
+  .button::after { content: ""; position: absolute; inset: -12px -3px; } /* a 44px target around a 22px control */
+  .button:active { transform: scale(0.97); background: var(--ink); color: var(--bg); } /* a finger has no hover, so a press shows what a hover would */
   .button:disabled { opacity: 0.4; pointer-events: none; }
   .button-solid { background: var(--ink); color: var(--bg); }
-  .button-cta { padding: 7px 14px; font-size: 13px; }
-  .button-cta::after { inset: -6px -3px; }
+  .button-solid:active { background: var(--bg); color: var(--ink); }
+  .button-square { width: 22px; padding-inline: 0; }
+  .button-cta { padding: 5px 12px; font-size: 13px; line-height: 18px; } /* 30px tall */
+  .button-cta::after { inset: -8px -3px; }
   @media (hover: hover) {
     .button:hover { background: var(--ink); color: var(--bg); }
     .button-solid:hover { background: var(--bg); color: var(--ink); }

@@ -16,12 +16,13 @@
  *
  * The dialog is the platform's own, so focus, Escape and the page behind are the browser's to manage.
  */
+import { STATS, STYLES, TITLE_MOST } from "../../lib/stamp";
+
 const colours = [
   { name: "paper", label: "Paper", value: "#f0f2ec" },
   { name: "ink", label: "Ink", value: "#2f4a3b" },
   { name: "accent", label: "Accent", value: "#c8553d" },
 ];
-const stats = ["machines", "files", "belts", "commits"];
 ---
 
 <dialog class="stamp" id="stamp" aria-labelledby="stamp-name">
@@ -45,14 +46,18 @@ const stats = ["machines", "files", "belts", "commits"];
     </div>
 
     <form class="look" id="stamp-look">
-      <label class="text">Title<input type="text" id="stamp-title" maxlength="40" autocomplete="off" spellcheck="false" /></label>
+      <label class="text">Title<input type="text" id="stamp-title" maxlength={TITLE_MOST} autocomplete="off" spellcheck="false" /></label>
+      <fieldset>
+        <legend>Style</legend>
+        {STYLES.map((style, nth) => <label><input type="radio" name="style" value={style} checked={nth === 0} />{style}</label>)}
+      </fieldset>
       <fieldset>
         <legend>Colours</legend>
         {colours.map(({ name, label, value }) => <label><input type="color" name={name} value={value} />{label}</label>)}
       </fieldset>
       <fieldset>
         <legend>Numbers</legend>
-        {stats.map((stat) => <label><input type="checkbox" name={stat} checked />{stat}</label>)}
+        {STATS.map((stat) => <label><input type="checkbox" name={stat} checked />{stat}</label>)}
       </fieldset>
       <fieldset>
         <legend>Shape</legend>
@@ -65,6 +70,7 @@ const stats = ["machines", "files", "belts", "commits"];
     <button type="button" class="button button-solid" id="stamp-save">Save image</button>
     <button type="button" class="button swap" id="stamp-link"><span>Copy challenge link</span><span aria-hidden="true">Copied</span></button>
     <input type="text" id="stamp-url" aria-label="Challenge link" readonly hidden />
+    <span class="said" id="stamp-said" role="status"></span>
   </footer>
 </dialog>
 
@@ -107,6 +113,7 @@ const stats = ["machines", "files", "belts", "commits"];
   input[type="color"]::-webkit-color-swatch { border: 0; }
   input[type="color"]::-moz-color-swatch { border: 0; }
   #stamp-url { flex: 1; min-width: 12ch; }
+  .said { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* heard, not seen: the button's face already says it */
 
   /* Both faces of the copy button share one cell, so the button keeps the wider one's width. */
   .swap { display: inline-grid; justify-items: center; }

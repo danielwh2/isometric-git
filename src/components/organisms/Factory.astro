@@ -22,7 +22,7 @@
  * script writes them, so nothing moves when the script takes over.
  */
 import sample from "../../data/sample.json";
-import { plan, tally } from "../../lib/plan";
+import { mergeWords, plan, tally } from "../../lib/plan";
 import type { Scan } from "../../lib/scan";
 
 const scan = sample as unknown as Scan;
@@ -43,8 +43,8 @@ const step = scan.steps.at(-1)!;
     <canvas id="factory" aria-hidden="true"></canvas>
     <div class="tags" id="tags"></div>
     <div class="zoom">
-      <button type="button" class="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
-      <button type="button" class="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="button button-square" id="zoom-out" aria-label="Zoom out">&minus;</button>
+      <button type="button" class="button button-square" id="zoom-in" aria-label="Zoom in">+</button>
       <button type="button" class="button" id="fit">Fit</button>
     </div>
     <p class="tip" id="tip" hidden></p>
@@ -81,12 +81,12 @@ const step = scan.steps.at(-1)!;
         <option value="2">2&times;</option>
         <option value="4">4&times;</option>
       </select>
-      <input type="range" id="commit" min="0" step="1" aria-label="Step" />
+      <input type="range" id="commit" min="0" max={frames.length - 1} value={frames.length - 1} step="1" aria-label="Step" />
       <span id="at">{frames.length} / {frames.length}</span>
     </div>
     <div class="log">
       <p class="meta"><span id="hash">{step.hash}</span><span id="date">{step.date}</span></p>
-      <div class="subjects" id="subjects">{scan.steps.map((each) => <p data-on={each === step ? "" : undefined}>{each.subject}</p>)}</div>
+      <div class="subjects" id="subjects">{scan.steps.map((each) => <p data-on={each === step ? "" : undefined}>{each.subject}{each.merge !== undefined && <span class="merge">{mergeWords(each.merge)}</span>}</p>)}</div>
     </div>
   </div>
 </section>
@@ -147,7 +147,7 @@ const step = scan.steps.at(-1)!;
   .tool .transport { display: grid; gap: 6px; padding: 10px 14px 12px; }
   .tool .transport .row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
   .tool #play { min-width: 8ch; } /* Replay, Play and Pause share a width, so the scrubber never moves */
-  .tool .transport select { padding: 2px 4px; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); }
+  .tool .transport select { height: 22px; padding: 0 4px; background: var(--bg); border: 1px solid var(--ink-30); border-radius: var(--radius); cursor: pointer; } /* as tall as the button beside it */
   .tool .transport input { width: 100%; margin: 0; accent-color: var(--ink); }
   .tool #at { font-variant-numeric: tabular-nums; color: var(--ink-80); white-space: nowrap; }
   .tool .log { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 14px; font-variant-numeric: tabular-nums; }
@@ -157,12 +157,14 @@ const step = scan.steps.at(-1)!;
   .tool .subjects { display: grid; color: var(--ink-80); }
   .tool .subjects p { grid-area: 1 / 1; visibility: hidden; overflow-wrap: anywhere; }
   .tool .subjects p[data-on] { visibility: visible; }
+  /* A merge wears a tag after its subject: the same hairline as a machine's, and inline so the line keeps its height. */
+  .tool .subjects .merge { margin-left: 8px; padding: 0 4px; font-size: 10px; white-space: nowrap; color: var(--ink); border: 1px solid var(--ink-30); border-radius: var(--radius); }
   @media (max-width: 640px) {
     .tool .log { grid-template-columns: minmax(0, 1fr); }
     .tool .where { flex-basis: 100%; } /* beside two buttons it would wrap to a column of single words */
   }
   @media (pointer: coarse) {
-    .tool .transport select { font-size: 16px; } /* iOS zooms the page when a smaller control takes focus */
+    .tool .transport select { height: auto; padding: 2px 4px; font-size: 16px; } /* iOS zooms the page when a smaller control takes focus */
     .tool .tag::after { inset: -14px -8px; } /* a 44px target around a 17px tag */
     .tool .inspector li button { padding-block: 6px; }
   }

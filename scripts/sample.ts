@@ -30,7 +30,16 @@ const write = (path: string, kB: number, ...imports: string[]): Change => ({ pat
 const grow = (path: string, kB: number, ...extra: string[]): Change => ({ path, kB, extra });
 const drop = (path: string): Change => ({ path, gone: true });
 
-const story: [subject: string, ...changes: Change[]][] = [
+type Chapter = [subject: string, ...changes: Change[]];
+const merges = new Map<string, { commits: number; contested: string[] }>(); // each merge's subject, the commits its branch held and the files main had changed under it
+/** A branch joined to main, under the subject git gives it: everything its commits changed lands as one step. */
+const merge = (branch: string, commits: number, contested: string[], ...changes: Change[]): Chapter => {
+  const subject = `Merge branch '${branch}'`;
+  merges.set(subject, { commits, contested });
+  return [subject, ...changes];
+};
+
+const story: Chapter[] = [
   ["Start with tokens and a button",
     write(TOKENS + "colors.ts", 6), write(TOKENS + "space.ts", 3), write(TOKENS + "type.ts", 4),
     write(UI + "button.tsx", 8, TOKENS + "colors.ts", TOKENS + "space.ts"),
@@ -123,6 +132,15 @@ const story: [subject: string, ...changes: Change[]][] = [
     grow(DB + "schema.ts", 48),
     write(PARTS + "search-box.tsx", 12, LIB + "api.ts", UI + "input.tsx"),
     grow(PARTS + "header.tsx", 14, PARTS + "search-box.tsx")],
+  // Built on a branch while main moved on. Both sides had changed the checkout route and the schema, and the merge settled them.
+  merge("gift-cards", 4, [ROUTES + "checkout.ts", DB + "schema.ts"],
+    write(PAY + "gift-card.ts", 9, SHARED + "money.ts", DB + "client.ts"),
+    write(ROUTES + "gift-cards.ts", 12, PAY + "gift-card.ts", AUTH + "guard.ts", SHARED + "types.ts"),
+    grow(API + "router.ts", 19, ROUTES + "gift-cards.ts"),
+    grow(DB + "schema.ts", 52),
+    grow(ROUTES + "checkout.ts", 25, PAY + "gift-card.ts"),
+    write(PARTS + "gift-card-field.tsx", 8, LIB + "api.ts", UI + "input.tsx", UI + "button.tsx"),
+    grow(PAGES + "checkout.tsx", 30, PARTS + "gift-card-field.tsx")),
   ["A footer, empty shelves and a page for wrong turns",
     write(PARTS + "footer.tsx", 7, UI + "text.tsx"),
     write(PARTS + "empty.tsx", 6, UI + "text.tsx", UI + "button.tsx"),
@@ -138,7 +156,7 @@ const story: [subject: string, ...changes: Change[]][] = [
   ["Rate limits on the API",
     write(API + "limit.ts", 9, AUTH + "session.ts", SHARED + "types.ts"),
     grow(API + "server.ts", 15, API + "limit.ts"),
-    grow(ROUTES + "checkout.ts", 24),
+    grow(ROUTES + "checkout.ts", 27),
     grow(ROUTES + "cart.ts", 17)],
 ];
 
@@ -173,6 +191,9 @@ const steps = story.map(([subject, ...changes], index): Step => {
     set,
     gone,
     touched: set.map(([file]) => file),
+    merge: merges.get(subject)?.commits,
+    delivered: merges.has(subject) ? set.map(([file]) => file) : undefined,
+    contested: merges.get(subject)?.contested.map(idOf),
   };
 });
 

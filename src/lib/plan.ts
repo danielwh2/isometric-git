@@ -5,11 +5,11 @@ import type { Scan } from "./scan";
 // World units. A hatch is half a unit.
 export const CELL = 6; // between machine centres. The widest roof is 4.1 (ROOF plus two rims), leaving a 1.9 gutter for two belt lanes.
 export const SLOT = 0.5; // the lattice everything on a belt snaps to: a box takes one slot. Machine centres, lanes and corners all fall on it.
-export const HATCH = 0.5; // roof taken by one file
-export const ROOF = 3.5; // the widest a hatch grid gets. Past 49 files the hatches shrink instead of the roof growing.
+const HATCH = 0.5; // roof taken by one file
+const ROOF = 3.5; // the widest a hatch grid gets. Past 49 files the hatches shrink instead of the roof growing.
 export const RIM = 0.3; // roof outside the hatches
 export const BELT = 0.5; // belt width: one slot, so a box has a little belt either side of it
-export const LANE = 0.5; // a belt keeps this far right of the gutter's centre, so opposite traffic has its own track. One slot, to stay on the lattice.
+const LANE = 0.5; // a belt keeps this far right of the gutter's centre, so opposite traffic has its own track. One slot, to stay on the lattice.
 const KB_TO_HEIGHT = 0.2; // height is this times sqrt(kB), so 250 kB stands about 3 high. Any taller and machines hide the belts behind them.
 const LOWEST = 0.5; // room for a door
 const TALLEST = 9; // ponytail: a folder past 2 MB stops growing taller. Switch to a log scale if repos with huge folders need telling apart.
@@ -26,6 +26,10 @@ export type Frame = {
   belts: Map<number, number>;
   /** Files each machine had changed in this step. */
   touched: Map<number, number>;
+  /** On a merge: the crates set down beside each machine, one for each file the branches changed there. */
+  delivered: Map<number, number>;
+  /** On a merge: each machine's roof hatches whose files both branches had changed. */
+  contested: Map<number, number[]>;
 };
 export type Plan = { machines: Machine[]; belts: Belt[]; frames: Frame[]; /** The machine each file belongs to. */ home: number[] };
 export type FileState = Map<number, { bytes: number; imports: number[] }>;
@@ -61,6 +65,9 @@ function replay(scan: Scan, visit: (files: FileState, step: number) => void) {
     visit(files, index);
   });
 }
+
+/** A machine's files in the order of its roof hatches. */
+export const rosterOf = (scan: Scan, files: FileState, home: number[], machine: number) => [...files.keys()].filter((file) => home[file] === machine).sort((p, q) => (scan.paths[p]! < scan.paths[q]! ? -1 : 1));
 
 export function filesAt(scan: Scan, at: number): FileState {
   let found: FileState = new Map();
@@ -205,10 +212,19 @@ export function plan(scan: Scan, split: ReadonlySet<string> = new Set(), flatByF
         takes[to]!.add(from);
       }
     }
+    const step = scan.steps[index]!;
     const touched = new Map<number, number>();
-    for (const file of scan.steps[index]!.touched) touched.set(home[file]!, (touched.get(home[file]!) ?? 0) + 1);
+    for (const file of step.touched) touched.set(home[file]!, (touched.get(home[file]!) ?? 0) + 1);
+    const contested = new Map<number, number[]>();
+    for (const file of step.contested ?? []) {
+      if (!files.has(file)) continue;
+      const machine = home[file]!;
+      contested.set(machine, [...(contested.get(machine) ?? []), rosterOf(scan, files, home, machine).indexOf(file)]);
+    }
+    const delivered = new Map<number, number>();
+    for (const file of step.delivered ?? []) delivered.set(home[file]!, (delivered.get(home[file]!) ?? 0) + 1);
     loads.push(load);
-    frames.push({ sizes: held.map(({ files: count, bytes }) => size(count, bytes)), belts: new Map(), touched });
+    frames.push({ sizes: held.map(({ files: count, bytes }) => size(count, bytes)), belts: new Map(), touched, delivered, contested });
   });
 
   const machines = layout(names, merged, takes);
@@ -230,6 +246,9 @@ export function plan(scan: Scan, split: ReadonlySet<string> = new Set(), flatByF
 }
 
 export const plural = (count: number, word: string) => `${count.toLocaleString("en")} ${word}${count === 1 ? "" : "s"}`;
+
+/** What a merge step wears after its subject: the commits its branches brought in, or only that it is one when they were not counted. */
+export const mergeWords = (commits: number) => (commits ? plural(commits, "commit") : "merge");
 
 /** What a step holds, in words. The page prints it at build time and the tool keeps it up to date. */
 export function tally(frame: Frame): string {

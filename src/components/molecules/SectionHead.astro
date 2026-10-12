@@ -1,10 +1,8 @@
 ---
 /**
- * SectionHead: how every section opens: the h2, then an optional lede.
- * No numeral or label above it.
+ * SectionHead: how every section opens: the h2, with no numeral or label above it.
  *
  *   <SectionHead title="How to read it" />
- *   <SectionHead title="Nothing leaves your machine">An optional lede as the slot.</SectionHead>
  *
  * Props
  *   title  the h2
@@ -13,16 +11,12 @@ interface Props {
   title: string;
 }
 const { title } = Astro.props;
-const hasLede = Astro.slots.has("default");
 ---
 
 <div class="head">
   <h2>{title}</h2>
-  {hasLede && <p><slot /></p>}
 </div>
 
 <style>
-  .head { display: grid; gap: 12px; }
   h2 { font-size: clamp(22px, 3vw, 30px); line-height: 1.12; letter-spacing: -0.035em; text-wrap: balance; }
-  p { max-width: var(--measure); color: var(--ink-80); text-wrap: pretty; }
 </style>
