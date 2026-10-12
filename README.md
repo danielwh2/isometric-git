@@ -31,14 +31,15 @@ bun run dev
 
 ## Limits
 
-- Belts follow JavaScript, TypeScript and CSS imports only. Other languages get machines with no belts.
+- Belts follow JavaScript, TypeScript and CSS imports, plus Rust `mod` declarations and `use` imports. Rust resolves `crate`, `self`, `super`, grouped imports, `#[path]` modules and local Cargo dependencies, including workspace inheritance and renamed crates. Other languages get machines with no belts.
+- Rust is scanned without compiling: macros and generated modules are not expanded, and conditional compilation is not evaluated. Dependencies outside the dropped repo have no belts.
 - A history longer than 150 commits is sampled down to 150 steps.
 - History follows the branch's own line, so a merged branch lands as one step that says how many commits it brought in. In a sampled history only the merges that fall on a step are marked, and a shallow clone's merges are marked but not counted. A repo dropped halfway through a merge or a rebase is drawn at its last commit.
 - SHA-1 repos only.
 
 ## Where things are
 
-- `src/lib` is the engine: `git.ts` reads `.git`, `scan.ts` turns history into steps, `plan.ts` places machines and routes belts, `conveyor.ts` moves the boxes, `factory.ts` animates and paints, `stamp.ts` scores a factory and draws its stamp.
+- `src/lib` is the engine: `git.ts` reads `.git`, `scan.ts` turns history into steps, `rust.ts` resolves Rust modules and Cargo dependencies, `plan.ts` places machines and routes belts, `conveyor.ts` moves the boxes, `factory.ts` animates and paints, `stamp.ts` scores a factory and draws its stamp.
 - `src/pages` and `src/components` are the page, built with [Astro](https://astro.build).
 - `scripts/sample.ts` writes the made-up repo the page opens on.
 

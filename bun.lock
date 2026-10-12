@@ -6,6 +6,7 @@
       "name": "isometric-git",
       "dependencies": {
         "astro": "^7.2.9",
+        "smol-toml": "^1.9.1",
       },
       "devDependencies": {
         "typescript": "^5.9.3",

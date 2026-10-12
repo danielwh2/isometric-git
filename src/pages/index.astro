@@ -61,7 +61,7 @@ const description = "Drop a repo folder and watch it built as an isometric facto
   <section class="note">
     <SectionHead title="Nothing leaves your machine" />
     <p>The page reads the folder you give it, <code>.git</code> included, inside your browser. There is no server behind it and no upload. Once the page has loaded it makes no request at all, which you can watch in the network tab.</p>
-    <p>It follows JavaScript, TypeScript and CSS imports, tsconfig paths and workspace packages. Other languages still get machines, with no belts between them yet. A merged branch lands as one step, and a history longer than 150 commits is sampled down to 150 steps.</p>
+    <p>It follows JavaScript, TypeScript and CSS imports, tsconfig paths and workspace packages, plus Rust modules, use imports and local Cargo dependencies. Rust macros and generated modules are not expanded. Other languages still get machines, with no belts between them yet. A merged branch lands as one step, and a history longer than 150 commits is sampled down to 150 steps.</p>
   </section>
 
   <section class="close">
