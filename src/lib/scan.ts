@@ -1,6 +1,8 @@
 // Turns a repo into the part data the factory draws: which files exist at each step,
 // how big they are and which files they import. No file contents are kept.
 import { Git, type Commit, type Folder } from "./git";
+import { dirname, join } from "./path";
+import { parseCargo, parseRust, rustImports, type Cargo, type RustSource } from "./rust";
 
 export type Step = {
   hash: string;
@@ -35,7 +37,7 @@ const MAX_STEPS = 150; // ponytail: longer histories are sampled evenly along th
 const MAX_PARSED = 1 << 20; // bytes. Anything larger is a bundle or data: it counts as a file but lays no belts.
 const HISTORY_TICK = 50; // commits between progress reports while walking back
 const MAX_JOINED = 50_000; // commits read off the branch's own line to count what its merges brought in. Past it a merge is still named, with no count.
-const MAX_CONFIG = 64 << 10; // bytes. A real tsconfig or package.json is a few kB; a larger one is skipped rather than parsed.
+const MAX_CONFIG = 64 << 10; // bytes. A real tsconfig, package.json or Cargo.toml is a few kB; a larger one is skipped rather than parsed.
 const MAX_PATH = 4096; // characters. No real path is longer, so a longer one is a folder that contains itself.
 const MAX_TREES = 300_000; // folders read in one scan, far past any repo we have read. Beyond it the tree is damaged or built to exhaust the tab.
 
@@ -43,6 +45,8 @@ const SOURCE = /\.(tsx?|jsx?|mts|cts|mjs|cjs|astro|vue|svelte|mdx|css|scss|html|
 const IMPORTING = /\.(tsx?|jsx?|mts|cts|mjs|cjs|astro|vue|svelte|mdx|css|scss)$/;
 const CONFIG = /(^|\/)(package|tsconfig[^/]*|jsconfig)\.json$/;
 const TS_CONFIG = /(^|\/)[tj]sconfig[^/]*\.json$/;
+const CARGO = /(^|\/)Cargo\.toml$/;
+const RUST = /\.rs$/;
 const STYLESHEET = /\.s?css$/;
 export const IGNORED = new Set(["node_modules", "dist", "build", "out", "target", "vendor", "coverage", ".next", ".git", ".venv", "__pycache__"]);
 // `from "x"`, `import "x"`, `import("x")`, `require("x")` and CSS `@import "x"`.
@@ -52,20 +56,7 @@ const EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"
 const JS_EXTENSION = /\.[mc]?jsx?$/; // TypeScript's ESM style writes "./x.js" for x.ts
 
 const utf8 = new TextDecoder();
-export const wanted = (path: string) => SOURCE.test(path) || CONFIG.test(path);
-const dirname = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
-
-/** Undefined when the path climbs out of the repo. */
-function join(base: string, relative: string): string | undefined {
-  const parts = base ? base.split("/") : [];
-  for (const part of relative.split("/")) {
-    if (part === "..") {
-      if (!parts.length) return undefined;
-      parts.pop();
-    } else if (part && part !== ".") parts.push(part);
-  }
-  return parts.join("/");
-}
+export const wanted = (path: string) => SOURCE.test(path) || CONFIG.test(path) || CARGO.test(path);
 
 // tsconfig allows comments and trailing commas. Strings are matched first so "@/*" survives.
 function parseLoose(text: string): Record<string, any> | undefined {
@@ -77,28 +68,51 @@ function parseLoose(text: string): Record<string, any> | undefined {
   }
 }
 
-type Source = { bytes: number; specs: string[] };
+type Source = { bytes: number; specs: string[]; rust?: RustSource };
 type Aliases = { home: string; base: string; hasBase: boolean; paths: [pattern: string, targets: string[]][] };
 
 /** What the tree holds right now: source files and the configs that say how imports resolve. */
 class Work {
   files = new Map<string, Source>();
   configs = new Map<string, Record<string, any>>();
+  cargo = new Map<string, Cargo>();
+  private rust = new Map<string, Set<string>>();
+  private stale = false;
 
   put(path: string, data: Uint8Array) {
-    if (CONFIG.test(path)) {
+    if (RUST.test(path) || CARGO.test(path)) this.stale = true;
+    if (CARGO.test(path)) {
+      const manifest = data.length <= MAX_CONFIG ? parseCargo(utf8.decode(data)) : undefined;
+      if (manifest) this.cargo.set(path, manifest);
+      else this.cargo.delete(path);
+    } else if (CONFIG.test(path)) {
       const json = data.length <= MAX_CONFIG ? parseLoose(utf8.decode(data)) : undefined;
       if (json && typeof json === "object") this.configs.set(path, json);
       else this.configs.delete(path);
     } else {
       const parse = IMPORTING.test(path) && data.length <= MAX_PARSED;
-      this.files.set(path, { bytes: data.length, specs: parse ? Array.from(utf8.decode(data).matchAll(IMPORT), (match) => match[1]!) : [] });
+      this.files.set(path, {
+        bytes: data.length,
+        specs: parse ? Array.from(utf8.decode(data).matchAll(IMPORT), (match) => match[1]!) : [],
+        rust: RUST.test(path) && data.length <= MAX_PARSED ? parseRust(utf8.decode(data)) : undefined,
+      });
     }
   }
 
   drop(path: string) {
+    if (RUST.test(path) || CARGO.test(path)) this.stale = true;
     this.files.delete(path);
     this.configs.delete(path);
+    this.cargo.delete(path);
+  }
+
+  /** The Rust module graph, rebuilt only when a `.rs` file or a Cargo.toml changed since the last call. */
+  rustEdges(): Map<string, Set<string>> {
+    if (this.stale) {
+      this.rust = rustImports(new Map([...this.files].filter(([path]) => RUST.test(path)).map(([path, source]) => [path, source.rust])), this.cargo);
+      this.stale = false;
+    }
+    return this.rust;
   }
 
   /** A function from (importing file, specifier) to the file it means, if that file is in the repo. */
@@ -199,8 +213,10 @@ class Steps {
     return id;
   }
 
-  add(work: Work, touched: string[], label: Pick<Step, "hash" | "date" | "subject" | "nth" | "merge">, own?: { changed: string[]; contested: string[] }) {
+  /** A step that changes nothing is a blank frame, so it is dropped unless `keep` says otherwise. */
+  add(work: Work, touched: string[], label: Pick<Step, "hash" | "date" | "subject" | "nth" | "merge">, own?: { changed: string[]; contested: string[] }, keep = false) {
     const resolve = work.resolver();
+    const rust = work.rustEdges();
     const next = new Map<string, { bytes: number; imports: number[] }>();
     for (const [path, source] of work.files) {
       const targets = new Set<number>();
@@ -208,6 +224,7 @@ class Steps {
         const hit = resolve(path, spec);
         if (hit && hit !== path) targets.add(this.id(hit));
       }
+      for (const hit of rust.get(path) ?? []) targets.add(this.id(hit));
       next.set(path, { bytes: source.bytes, imports: [...targets].sort((p, q) => p - q) });
     }
     const set: Step["set"] = [];
@@ -216,6 +233,7 @@ class Steps {
       if (!was || was.bytes !== now.bytes || was.imports.join() !== now.imports.join()) set.push([this.id(path), now.bytes, now.imports]);
     }
     const gone = [...this.prior.keys()].filter((path) => !next.has(path)).map((path) => this.id(path));
+    if (!keep && !set.length && !gone.length && !touched.length) return;
     // Only files standing after the step: one the merge removed has no hatch to mark and no machine to deliver to.
     const standing = (paths: string[]) => paths.filter((path) => next.has(path)).map((path) => this.id(path));
     const contested = own ? standing(own.contested) : [];
@@ -326,7 +344,7 @@ export async function scanGit(folder: Folder, name: string, progress: Progress =
     await diff(git, tree, commit.tree, "", change);
     tree = commit.tree;
     // A partial clone holds every tree but not every blob. A file it cannot read was never here, as far as the factory goes.
-    const removed = change.removed.filter((path) => work.files.has(path) || work.configs.has(path));
+    const removed = change.removed.filter((path) => work.files.has(path) || work.configs.has(path) || work.cargo.has(path));
     for (const path of removed) work.drop(path);
     const read: string[] = [];
     for (const { path, blob } of change.changed) {
@@ -336,8 +354,9 @@ export async function scanGit(folder: Folder, name: string, progress: Progress =
       read.push(path);
     }
     const touched = [...removed, ...read].filter((path) => SOURCE.test(path));
-    // A commit that changed no source file draws nothing new, so it is not a step.
-    if (touched.length) {
+    // Only source and config paths are read or removed, and a config-only change (tsconfig paths, workspaces, Cargo.toml)
+    // can reroute imports between files that did not change. A step that redraws nothing is dropped by `add`.
+    if (read.length || removed.length) {
       const merge = commit.parents.length > 1;
       const own = merge && settling.read <= MAX_TREES ? await mergeOf(git, commit, settling).catch(() => undefined) : undefined;
       steps.add(work, touched, { hash: commit.hash.slice(0, 7), date: commit.date, subject: commit.subject, nth: pick + 1, merge: merge ? (brought.get(commit.hash) ?? 0) : undefined }, own);
@@ -355,6 +374,6 @@ export async function scanFiles(name: string, files: { path: string; read(): Pro
     progress("steps", done + 1, files.length);
   }
   const steps = new Steps();
-  steps.add(work, [], { hash: "", date: "", subject: "The folder as it is. No .git history was found in it.", nth: 1 });
+  steps.add(work, [], { hash: "", date: "", subject: "The folder as it is. No .git history was found in it.", nth: 1 }, undefined, true);
   return { name, commits: 0, paths: steps.paths, steps: steps.steps };
 }

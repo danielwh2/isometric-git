@@ -8,19 +8,23 @@ import { dirname, join } from "node:path";
 import { disk } from "./disk";
 import { scanGit, type Scan } from "../src/lib/scan";
 
-const repo = mkdtempSync(join(tmpdir(), "isometric-git-"));
-const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { encoding: "utf8" });
-const commit = (subject: string, files: Record<string, string | null>) => {
-  for (const [path, text] of Object.entries(files)) {
-    if (text === null) rmSync(join(repo, path));
-    else {
-      mkdirSync(dirname(join(repo, path)), { recursive: true });
-      writeFileSync(join(repo, path), text);
+const fixture = (repo: string) => {
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", ...args], { encoding: "utf8" });
+  const commit = (subject: string, files: Record<string, string | null>) => {
+    for (const [path, text] of Object.entries(files)) {
+      if (text === null) rmSync(join(repo, path));
+      else {
+        mkdirSync(dirname(join(repo, path)), { recursive: true });
+        writeFileSync(join(repo, path), text);
+      }
     }
-  }
-  git("add", "-A");
-  git("commit", "-q", "-m", subject);
+    git("add", "-A");
+    git("commit", "-q", "-m", subject);
+  };
+  return { git, commit };
 };
+const repo = mkdtempSync(join(tmpdir(), "isometric-git-"));
+const { git, commit } = fixture(repo);
 const filler = (seed: string) => Array.from({ length: 400 }, (_, line) => `export const ${seed}${line} = ${line};`).join("\n");
 
 git("init", "-q");
@@ -61,4 +65,23 @@ test("reads the same history from a packfile", async () => {
   git("gc", "-q", "--aggressive", "--prune=now");
   await check();
   rmSync(repo, { recursive: true });
+});
+
+test("a tsconfig-only commit that changes paths reroutes imports in its own step", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "isometric-git-"));
+  const { git, commit } = fixture(repo);
+  const paths = (to: string) => `{ "compilerOptions": { "paths": { "@/*": ["./${to}/*"] } } }`;
+  try {
+    git("init", "-q");
+    commit("two homes for a module", { "tsconfig.json": paths("one"), "src/run.ts": `import "@/model";`, "one/model.ts": "export {};", "two/model.ts": "export {};" });
+    commit("reroute the alias", { "tsconfig.json": paths("two") });
+    commit("unrelated config", { "package.json": `{ "name": "app" }` });
+    const scan = (await scanGit(disk(join(repo, ".git")), "alias"))!;
+    expect(scan.steps.map((step) => step.subject)).toEqual(["two homes for a module", "reroute the alias"]); // a config that reroutes nothing draws nothing
+    expect(filesAt(scan, 0).get("src/run.ts")!.imports).toEqual(["one/model.ts"]);
+    expect(filesAt(scan, 1).get("src/run.ts")!.imports).toEqual(["two/model.ts"]);
+    expect(scan.steps[1]!.touched).toEqual([]);
+  } finally {
+    rmSync(repo, { recursive: true });
+  }
 });
